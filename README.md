@@ -78,13 +78,30 @@ Being honest about coverage matters more than hype, so:
   coordinates**, which *should* be independent of the world seed and where the bench sits — but this
   is **unconfirmed**, and we don't yet know how different benches set the craft origin. If your blocks
   land in the wrong place, this is the likely reason.
-- **Late-join / full-craft sync.** Only edits made **after** the mod loads sync. Blocks that already
-  existed won't sync until touched. (Full snapshot sync is on the roadmap.)
-- **Non-electric wires** (logic, composite, fluid, rope, …), **component properties** (battery
-  charge/name, etc.), and **microcontroller resizing** — not synced yet.
 
-If you try it somewhere new, [**opening an issue**](../../issues) with your result (works / doesn't)
-is genuinely the most useful thing you can contribute right now.
+If you try it somewhere new, [**opening an issue**](../../issues) with your result — and, if something
+broke, **both players' `coopworkbench-log.txt`** (with SteamIDs removed) — is the single most useful
+thing you can contribute right now.
+
+## Known limitations — what doesn't work yet
+
+It's **alpha**. Plenty is still missing or in progress:
+
+- **No late-join / full-craft sync.** Only edits made **after** the mod loads sync; blocks that already
+  existed won't sync until you touch them. Both players should start from the same base.
+- **Only electric-power wires sync.** Other connection types (logic, composite, fluid, video, audio,
+  rope) and **wire disconnects** aren't synced yet.
+- **No component-property sync** — battery charge %/name, logic-constant values, and other per-part
+  settings don't carry across.
+- **No microcontroller-resize sync**, and a microcontroller's internal logic isn't synced.
+- **No undo/redo, symmetry-mode, or multi-body sync**, and it's **two players** only for now.
+- **Concurrent edits to the same voxel** resolve last-writer-wins — there's no smart merge yet.
+- **Missing parts are skipped.** If your partner places a modded part you don't have installed, it's
+  logged and skipped, not placed.
+- **Windows only**, and a **game update can break it** until offsets are re-checked (a signature scan
+  at startup makes that less likely).
+
+All of this is on the [roadmap](ROADMAP.md) — help is very welcome.
 
 ## Quick start
 

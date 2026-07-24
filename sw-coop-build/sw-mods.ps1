@@ -17,7 +17,7 @@
     .\sw-mods.ps1                      # list what is loaded
     .\sw-mods.ps1 -Unload glprobe3     # unload one, with confirmation
     .\sw-mods.ps1 -UnloadAll           # unload every probe/overlay, newest first
-    .\sw-mods.ps1 -UnloadAll -IncludeCoop   # also unload coop.dll (another session may own it)
+    .\sw-mods.ps1 -UnloadAll -IncludeCoop   # also unload coopworkbench.dll (another session may own it)
 #>
 [CmdletBinding()]
 param(

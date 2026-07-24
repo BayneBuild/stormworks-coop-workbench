@@ -27,8 +27,7 @@ Requires **MSVC x64 build tools** (VS2022 Build Tools) with `ml64` (MASM), on **
 
 ```bat
 cd sw-coop-build
-build-coop.cmd        & rem  builds coop.dll (the co-op mod)
-build-wsdraw.cmd      & rem  builds wsdraw.dll (the in-world partner overlay)
+build-coop.cmd        & rem  builds coopworkbench.dll (co-op sync + the in-world overlay, one DLL)
 ```
 
 Build scripts are script-relative (`%~dp0`), so they run from wherever the repo lives.

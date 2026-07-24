@@ -64,11 +64,16 @@ likely to break it.
 
 ## The partner overlay
 
-A second, self-contained piece (`wsdraw.cpp`) draws **custom UI inside the game's 3D scene** — the
+The in-world overlay (`wsdraw.cpp`) draws **custom UI inside the game's 3D scene** — the
 "where is my partner looking" marker. It hooks the frame present (`SwapBuffers`) and draws with the
 game's own OpenGL, and it captures the workbench camera so it can project any world point to the
-screen. It has its own small Steam channel and shares state with the co-op mod through a named
-memory block ([`coop_hud_state.h`](sw-coop-build/hook_dll/coop_hud_state.h)).
+screen. It has its own small Steam channel and shares state through a named memory block
+([`coop_hud_state.h`](sw-coop-build/hook_dll/coop_hud_state.h)).
+
+It's **compiled into the same `coopworkbench.dll`** as the sync mod — one DLL, one `DllMain`:
+`coop.cpp`'s `DllMain` calls `overlay_start()` at load and `overlay_stop()` on unload, so the two
+share a process and tear down together. In game, **F9** shows/hides the overlay and **F10** shows/hides
+the calibration readouts.
 
 ## File map
 
@@ -77,8 +82,8 @@ memory block ([`coop_hud_state.h`](sw-coop-build/hook_dll/coop_hud_state.h)).
 | [`sw-coop-build/hook_dll/coop.cpp`](sw-coop-build/hook_dll/coop.cpp) | the mod: detect + Steam P2P + forge-apply |
 | `sw-coop-build/hook_dll/detour_*.asm` | the inline-hook detours (place, add, delete, arm, factory, connect) |
 | [`sw-coop-build/hook_dll/wsdraw.cpp`](sw-coop-build/hook_dll/wsdraw.cpp) | the in-world partner-camera overlay |
-| [`sw-coop-build/hook_dll/coop_hud_state.h`](sw-coop-build/hook_dll/coop_hud_state.h) | shared-memory bridge between the two |
-| `sw-coop-build/build-coop.cmd` | build the DLL(s) (MSVC x64 + `ml64`) |
+| [`sw-coop-build/hook_dll/coop_hud_state.h`](sw-coop-build/hook_dll/coop_hud_state.h) | in-process shared-state block (sync side writes, overlay reads) |
+| `sw-coop-build/build-coop.cmd` | build `coopworkbench.dll` (MSVC x64 + `ml64`) |
 | `sw-coop-build/inject.ps1` / `reload-build.ps1` | load the mod / dev hot-reload |
 | [`sw-coop-build/coop-package/`](sw-coop-build/coop-package) | the shippable package (inject scripts, setup + test docs) |
 | [`sw-coop-build/SHAPE-COVERAGE.md`](sw-coop-build/SHAPE-COVERAGE.md) | which part shapes are handled |

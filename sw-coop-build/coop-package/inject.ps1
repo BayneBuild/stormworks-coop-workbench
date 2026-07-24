@@ -1,22 +1,17 @@
 <#
-  Stormworks co-op — connect & inject BOTH mods with one run.
-    coop.dll    = block/paint/delete/connection sync (the co-op editor)
-    wsdraw.dll  = world-space overlay (see your partner's camera)
+  Coop Workbench - connect & load the mod with one run.
+    coopworkbench.dll = block/paint/delete/connection sync + the in-world partner-camera overlay
   1) shows YOUR SteamID64 (give it to your partner)
-  2) asks for your PARTNER's SteamID64 -> writes coop-peer.txt (BOTH DLLs read it)
-  3) injects coop.dll then wsdraw.dll into a running stormworks64.exe
-  Just run inject-both.bat.
+  2) asks for your PARTNER's SteamID64 -> writes coop-peer.txt
+  3) injects coopworkbench.dll into a running stormworks64.exe
+  Just run inject.bat.
 #>
 $ErrorActionPreference = 'Stop'
 $here     = Split-Path -Parent $MyInvocation.MyCommand.Path
-$CoopDll  = Join-Path $here 'coop.dll'
-$DrawDll  = Join-Path $here 'wsdraw.dll'
+$Dll      = Join-Path $here 'coopworkbench.dll'
 $PeerFile = Join-Path $here 'coop-peer.txt'
-foreach ($d in @($CoopDll,$DrawDll)) {
-  if (-not (Test-Path $d)) { Write-Host "$([IO.Path]::GetFileName($d)) not found next to this script." -ForegroundColor Red; Read-Host 'Press Enter'; exit 1 }
-}
-$CoopDll = (Resolve-Path $CoopDll).Path
-$DrawDll = (Resolve-Path $DrawDll).Path
+if (-not (Test-Path $Dll)) { Write-Host "coopworkbench.dll not found next to this script (did you extract the whole zip?)." -ForegroundColor Red; Read-Host 'Press Enter'; exit 1 }
+$Dll = (Resolve-Path $Dll).Path
 
 $STEAMID_BASE = [uint64]76561197960265728
 function Get-MySteamID64 {
@@ -27,14 +22,14 @@ function Get-MySteamID64 {
   return $null
 }
 
-Write-Host "==== Stormworks Co-op + Overlay ====" -ForegroundColor Cyan
+Write-Host "==== Coop Workbench ====" -ForegroundColor Cyan
 $my = Get-MySteamID64
 if ($my) {
   Write-Host "`nYOUR SteamID64:  " -NoNewline; Write-Host "$my" -ForegroundColor Green
   Write-Host "(send this to your partner so they can connect to you)`n" -ForegroundColor DarkGray
 } else {
   Write-Host "`nCouldn't read your SteamID from the registry (is Steam running & logged in?)." -ForegroundColor Yellow
-  Write-Host "After injecting, your ID is printed as 'our=...' in coop-log.txt.`n" -ForegroundColor DarkGray
+  Write-Host "After injecting, your ID is printed as 'our=...' in coopworkbench-log.txt.`n" -ForegroundColor DarkGray
 }
 
 # prompt for partner's SteamID64 (blank = watch-only: receive, don't send)
@@ -92,25 +87,18 @@ public static class Inj {
 }
 "@ -Language CSharp
 
-function Inject-One([string]$label, [string]$dll) {
-  Write-Host "Injecting $label ..." -NoNewline -ForegroundColor Cyan
-  $r = [Inj]::Run($p.Id, $dll)
-  if ($r -eq 'OK') { Write-Host " OK" -ForegroundColor Green } else { Write-Host " $r" -ForegroundColor Yellow }
-  Start-Sleep -Milliseconds 400
-}
-
 Write-Host "`nStormworks PID $($p.Id)" -ForegroundColor DarkGray
-Inject-One 'coop.dll (block/wire sync)' $CoopDll
-Inject-One 'wsdraw.dll (overlay)'       $DrawDll
+Write-Host "Injecting coopworkbench.dll ..." -NoNewline -ForegroundColor Cyan
+$r = [Inj]::Run($p.Id, $Dll)
+if ($r -eq 'OK') { Write-Host " OK" -ForegroundColor Green } else { Write-Host " $r" -ForegroundColor Yellow }
 
-Start-Sleep -Milliseconds 400
-$clog = Join-Path $here 'coop-log.txt'
-$wlog = Join-Path $here 'wsdraw-log.txt'
-if (Test-Path $clog) { Write-Host "`ncoop status:" -ForegroundColor Cyan; Get-Content $clog -Tail 3 }
-if (Test-Path $wlog) { Write-Host "`noverlay status:" -ForegroundColor Cyan; Get-Content $wlog -Tail 3 }
+Start-Sleep -Milliseconds 500
+$clog = Join-Path $here 'coopworkbench-log.txt'
+if (Test-Path $clog) { Write-Host "`nstatus:" -ForegroundColor Cyan; Get-Content $clog -Tail 4 }
 
 Write-Host "`n--- In the workbench ---" -ForegroundColor Cyan
 Write-Host "  * Build/erase/paint/wire blocks - they sync to your partner (and theirs to you)." -ForegroundColor Gray
 Write-Host "  * Look for your partner's camera as a cyan 'PARTNER' frustum in the world." -ForegroundColor Gray
-Write-Host "  * To unload later: run unload-both.bat" -ForegroundColor DarkGray
+Write-Host "  * F9 = show/hide the overlay,  F10 = show/hide the calibration readouts." -ForegroundColor DarkGray
+Write-Host "  * To unload later (no game restart): run unload.bat" -ForegroundColor DarkGray
 Read-Host "`nPress Enter to close"

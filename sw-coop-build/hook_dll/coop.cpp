@@ -16,6 +16,10 @@
 #include <cstring>
 #include <cstdint>
 
+// overlay (wsdraw.cpp) - compiled into THIS same DLL; coop's DllMain drives its lifecycle.
+extern "C" void overlay_start(HMODULE self);
+extern "C" void overlay_stop();
+
 // ---- detour interfaces ----
 extern "C" {
     // detour_detect.asm  (hook on 0x7F7EB0 - arms the apply context)
@@ -105,18 +109,18 @@ static BYTE g_struct[0x80];
 
 // ---- files (resolved NEXT TO THE DLL at load, so the mod is portable to any machine) ----
 static HMODULE g_hmod = nullptr;
-static char LOGP[MAX_PATH]  = "coop-log.txt";     // fallback (cwd) if resolution fails
+static char LOGP[MAX_PATH]  = "coopworkbench-log.txt";     // fallback (cwd) if resolution fails
 static char PEERP[MAX_PATH] = "coop-peer.txt";    // put the PEER's SteamID64 here
-static char CMDP[MAX_PATH]  = "coop-cmd.txt";     // write "unload" here to hot-unload the mod
+static char CMDP[MAX_PATH]  = "coopworkbench-cmd.txt";     // write "unload" here to hot-unload the mod
 static void init_paths() {
     char mod[MAX_PATH]; DWORD n = GetModuleFileNameA(g_hmod, mod, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) return;
     char* slash = strrchr(mod, '\\');
     if (!slash) return;
     *(slash+1) = 0;                               // mod = DLL directory with trailing backslash
-    _snprintf_s(LOGP,  MAX_PATH, _TRUNCATE, "%scoop-log.txt",  mod);
+    _snprintf_s(LOGP,  MAX_PATH, _TRUNCATE, "%scoopworkbench-log.txt",  mod);
     _snprintf_s(PEERP, MAX_PATH, _TRUNCATE, "%scoop-peer.txt", mod);
-    _snprintf_s(CMDP,  MAX_PATH, _TRUNCATE, "%scoop-cmd.txt",  mod);
+    _snprintf_s(CMDP,  MAX_PATH, _TRUNCATE, "%scoopworkbench-cmd.txt",  mod);
 }
 
 // ---- wire format ----
@@ -679,7 +683,7 @@ static void try_arm() {
 static DWORD WINAPI detect_worker(LPVOID) {
     while (g_running) {
         try_arm();                                 // drain a pending single-click / auto-arm
-        while (g_ring_rd < g_ring_wr) {            // drain ALL enqueued placements (whole drag line)
+        while (g_ring_rd < g_ring_wr && g_running) { // drain ALL enqueued placements (whole drag line); bail on unload
             try_arm();                             // keep arm current through a burst
             long idx = (long)(g_ring_rd & 0x3FF);
             BYTE ab[0x80];
@@ -723,7 +727,7 @@ static DWORD WINAPI detect_worker(LPVOID) {
 // Fires once per removed component (arg5). Detection-only for now (log); gating + apply next.
 static DWORD WINAPI del_worker(LPVOID) {
     while (g_running) {
-        while (g_delring_rd < g_delring_wr) {          // drain the WHOLE eraser burst (drag = many removes)
+        while (g_delring_rd < g_delring_wr && g_running) { // drain the WHOLE eraser burst; bail on unload
             long idx = (long)(g_delring_rd & 0xFF);
             int x=g_delring[idx*3+0], y=g_delring[idx*3+1], z=g_delring[idx*3+2];
             g_delring_rd++;
@@ -896,18 +900,28 @@ static void unhook_all() {
         }
     }
 }
-// watch coop-cmd.txt for "unload" -> restore hooks, stop threads, free the DLL (unlocks the file)
+// watch coopworkbench-cmd.txt for "unload" -> restore hooks, stop threads, free the DLL (unlocks the file)
 static DWORD WINAPI cmd_watcher(LPVOID) {
     while (g_running) {
         FILE* f=nullptr; fopen_s(&f, CMDP, "r");
         if (f) { char t[32]={0}; if(!fgets(t,sizeof(t),f)) t[0]=0; fclose(f); DeleteFileA(CMDP);
             if (strncmp(t,"unload",6)==0) {
                 logline("UNLOAD: restoring hooks + freeing DLL for hot reload");
+                overlay_stop();               // tear down the overlay first (restore its hooks, join net worker)
                 unhook_all();
                 logline("UNLOAD: hooks restored; stopping workers");
                 InterlockedExchange(&g_running, 0);
                 Sleep(300);   // let any in-flight detour/game-call return past our code
-                if (g_nthreads > 0) { DWORD wr=WaitForMultipleObjects(g_nthreads, g_threads, TRUE, 3000); logline("UNLOAD: worker wait -> %lu (0x102=timeout)", wr); } // must EXIT before unmap
+                // Wait until the worker threads PROVABLY exit before unmapping. NEVER free on a timeout:
+                // a worker still executing in this DLL when FreeLibrary unmaps it = use-after-free crash.
+                // Loop the wait (hanging the unload is strictly safer than crashing the game).
+                if (g_nthreads > 0) {
+                    DWORD wr; int spins=0;
+                    do { wr = WaitForMultipleObjects(g_nthreads, g_threads, TRUE, 1000);
+                         if (wr == WAIT_TIMEOUT) logline("UNLOAD: workers still running (spin %d), waiting...", ++spins);
+                    } while (wr == WAIT_TIMEOUT);
+                    logline("UNLOAD: all workers exited (wait -> %lu)", wr);
+                }
                 Sleep(50);
                 logline("UNLOAD: freeing library now");
                 FreeLibraryAndExitThread(g_hmod, 0);
@@ -959,10 +973,15 @@ static DWORD WINAPI setup(LPVOID) {
     DeleteFileA(CMDP);                       // clear any stale command
     spawn(detect_worker);                     // handles both arm + detect+emit
     spawn(del_worker);                        // delete detection
-    spawn(cmd_watcher);                       // hot-unload command watcher
+    // hot-unload watcher: launched OUTSIDE g_threads on purpose. It is the thread that runs the
+    // unload's WaitForMultipleObjects(g_threads, bWaitAll), so it must NOT be in that set - a thread
+    // waiting on its own never-signaled handle would spin the "never free on timeout" loop forever.
+    CreateThread(nullptr, 0, cmd_watcher, nullptr, 0, nullptr);
     steam_init();
     logline("coop v4 ready (session poll-accept + relay). base=0x%llX. hooks: arm=0x%llX detect=0x%llX. Auto-arms on your first edit (click OR drag); build to sync. peer=%llu",
             g_base, PLACE_OFF, ADD_OFF, (unsigned long long)g_peerid);
+    overlay_start(g_hmod);                    // start the in-world partner-camera overlay (merged in)
+    logline("overlay started (merged into coopworkbench.dll; F9=overlay F10=hud)");
     return 0;
 }
 BOOL APIENTRY DllMain(HMODULE h, DWORD r, LPVOID) {

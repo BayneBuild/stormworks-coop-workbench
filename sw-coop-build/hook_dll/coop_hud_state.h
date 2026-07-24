@@ -1,7 +1,7 @@
 // coop_hud_state.h - shared HUD state block for the Stormworks co-op mod.
 //
 // PURPOSE
-//   coop.dll owns all the co-op runtime state (SteamIDs, armed flag, editor ptr, counters,
+//   coopworkbench.dll owns all the co-op runtime state (SteamIDs, armed flag, editor ptr, counters,
 //   last error, hook status). overlay.dll draws the in-game HUD. The two are SEPARATE DLLs
 //   with no link-time relationship, so the state is published through a named shared-memory
 //   block instead of exported symbols. Same-process (both injected into stormworks64.exe)
@@ -37,8 +37,8 @@
 //     #include "coop_hud_state.h"          // no COOP_HUD_WRITER
 //     CoopHudState s;
 //     if (coop_hud_read(&s)) { ... draw s.places_sent, s.ev[...] ... }
-//   coop_hud_read() lazily opens the mapping and returns false while coop.dll is not loaded,
-//   so the overlay can be injected first, last, or across a coop.dll hot-reload.
+//   coop_hud_read() lazily opens the mapping and returns false while coopworkbench.dll is not loaded,
+//   so the overlay can be injected first, last, or across a coopworkbench.dll hot-reload.
 //
 // DEPENDENCIES: <windows.h> only. Header-only. C++11 (static_assert).
 
@@ -123,7 +123,7 @@ struct CoopHudState {
     coop_u64 tramp_delarm;
 
     // --- flags ---
-    coop_u32 running;         // 1 while coop.dll is live; 0 after hot-unload
+    coop_u32 running;         // 1 while coopworkbench.dll is live; 0 after hot-unload
     coop_u32 armed;           // g_armed - apply path bootstrapped (one local click done)
     coop_u32 session_ok;      // g_session_ok - Steam P2P session accepted / link live
     coop_u32 localecho;       // g_localecho - peer == self, round-trip test mode
@@ -134,7 +134,7 @@ struct CoopHudState {
     coop_u32 hooks_installed; // CoopHudHookBit mask
     coop_u32 writer_pid;      // GetCurrentProcessId() of the writer
     coop_u32 start_tick;      // GetTickCount() at coop_hud_init
-    coop_u32 heartbeat;       // bumped by the writer's sampler; stalls => coop.dll wedged
+    coop_u32 heartbeat;       // bumped by the writer's sampler; stalls => coopworkbench.dll wedged
 
     // --- counters ---
     coop_u32 places_sent;     // local placements emitted (wire or local-echo)
@@ -205,7 +205,7 @@ static CoopHudState* g_coop_hud      = NULL;
 static volatile LONG g_coop_hud_lock = 0;   // process-local; serialises the seqlock writers
 
 // Create (or re-attach to) the block and publish it. Safe to call twice.
-// If a previous coop.dll instance leaked the section (see coop_hud_shutdown), this re-opens
+// If a previous coopworkbench.dll instance leaked the section (see coop_hud_shutdown), this re-opens
 // the SAME named section, zeroes it and republishes - so a reader that is still mapped onto
 // it survives a hot-reload without ever touching a freed view.
 static inline bool coop_hud_init(coop_u64 module_base) {
@@ -318,7 +318,7 @@ static inline void coop_hud_reader_close() {
 static inline bool coop_hud_reader_open() {
     if (g_coop_hud_r) return true;
     HANDLE h = OpenFileMappingA(FILE_MAP_READ, FALSE, COOP_HUD_MAP_NAME);
-    if (!h) return false;                                  // coop.dll not injected (yet)
+    if (!h) return false;                                  // coopworkbench.dll not injected (yet)
     void* v = MapViewOfFile(h, FILE_MAP_READ, 0, 0, 0);
     if (!v) { CloseHandle(h); return false; }
     g_coop_hud_rmap = h;
@@ -353,7 +353,7 @@ static inline bool coop_hud_read(CoopHudState* out) {
 // Frame-friendly wrapper for the SwapBuffers hook: on a contended/absent read it hands back
 // the last snapshot that WAS good instead of blanking the HUD for a frame. Returns false only
 // until the very first successful read. `stale_ms` (optional) reports how old the data is, so
-// the overlay can grey the panel out if coop.dll has gone away.
+// the overlay can grey the panel out if coopworkbench.dll has gone away.
 // Measured: under a pathological 4-writer hammer ~8% of reads exhaust the retry budget; under
 // the real update rate (tens per second) that is effectively never - but this makes it moot.
 static inline bool coop_hud_read_cached(CoopHudState* out, coop_u32* stale_ms) {

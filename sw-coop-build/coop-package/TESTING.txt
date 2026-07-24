@@ -1,5 +1,5 @@
 ======================================================================
-  TWO-MACHINE TEST CHECKLIST  -  Stormworks Co-op Editor
+  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench
 ======================================================================
 Goal: confirm every synced feature works between two real machines (A and B)
 over Steam P2P. Run through it once A->B, then swap and run B->A.
@@ -9,20 +9,18 @@ over Steam P2P. Run through it once A->B, then swap and run B->A.
 ----------------------------------------------------------------------
 [ ] Both on Steam (logged in) with Stormworks running, same base game +
     the SAME mods installed.
-[ ] Both have this folder (coop.dll + wsdraw.dll + the scripts).
-[ ] Exchange SteamID64s (inject-both.bat prints yours).
+[ ] Both have this folder (coopworkbench.dll + the scripts).
+[ ] Exchange SteamID64s (inject.bat prints yours).
 
 ----------------------------------------------------------------------
 1. CONNECT
 ----------------------------------------------------------------------
 [ ] Both: open the vehicle workbench, empty craft.
 [ ] Both: place ONE block at the SAME origin spot (so coordinates line up).
-[ ] Both: run inject-both.bat, paste the partner's SteamID64.  (This loads the
-    co-op sync AND the overlay together.)
-[ ] Both: check coop-log.txt shows your 'our=' id + the partner id, and
-    within a few seconds '*** SESSION ACCEPTED ***' or '*** LINK LIVE ***'.
-[ ] Both: check wsdraw-log.txt shows 'net: our=... peer=...' and, once the
-    partner is in the workbench, 'net: *** peer camera link LIVE ***'.
+[ ] Both: run inject.bat, paste the partner's SteamID64.
+[ ] Both: check coopworkbench-log.txt shows your 'our=' id + the partner id,
+    and within a few seconds '*** SESSION ACCEPTED ***' or '*** LINK LIVE ***',
+    plus 'net: *** peer camera link LIVE ***' once the partner is in the bench.
 [ ] Both: your FIRST edit auto-arms the apply path (log shows either
     'ARMED (single-click)' or 'AUTO-ARMED (click-drag, no single-click)').
     No separate arm step is needed.
@@ -54,9 +52,11 @@ not your own), Steam is running, and neither is blocked by a firewall.
 [ ] A: move/orbit your camera. On B, a cyan "PARTNER" frustum should move to
     match where A is looking (and vice-versa). It has a drop-line to the
     ground and an "up" spike.
-[ ] If no PARTNER marker appears but a cyan "PEER (you, delayed)" one does,
-    the overlay renders fine but the peer packet isn't arriving - check
-    wsdraw-log.txt for 'peer camera link LIVE' and that coop-peer.txt matches.
+[ ] F9 shows/hides the overlay; F10 shows/hides the top-left calibration
+    readouts. Default: overlay on, readouts hidden.
+[ ] If no PARTNER marker appears, the peer packet isn't arriving - check
+    coopworkbench-log.txt (and wsdraw-log.txt) for 'peer camera link LIVE'
+    and that coop-peer.txt matches your partner's id.
 [ ] The overlay never blocks building - block sync must keep working
     regardless of whether the marker shows.
 
@@ -70,8 +70,8 @@ not your own), Steam is running, and neither is blocked by a firewall.
 ----------------------------------------------------------------------
 IF SOMETHING FAILS
 ----------------------------------------------------------------------
-Grab coop-log.txt from BOTH machines at the moment it failed and note which
-step. Useful markers:
+Grab coopworkbench-log.txt from BOTH machines at the moment it failed and note
+which step. REMOVE the SteamID64s before sharing. Useful markers:
   >>> SEND ...        an edit left your machine
   <<< APPLIED ...     an edit was applied on the receiver
   NOT ARMED           rare now: an edit arrived just before the first placement armed

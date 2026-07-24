@@ -1,25 +1,21 @@
-// wsdraw.cpp - WORLD-SPACE DRAW TEST. The payoff of probes 1-3.
+// wsdraw.cpp - the in-world partner-camera OVERLAY, compiled into coopworkbench.dll.
 //
-// Established:
-//   probe1: world camera is shader-only (fixed-function matrix stacks never touched)
-//   probe2: glUniformMatrix4fv is hookable by a SAFE POINTER SWAP of a cached .data pointer
-//   probe3: the craft's MVP is uploaded every frame. inv(P)*MVP came out PERFECTLY RIGID
-//           (R*Rt == I, unit column norms, bottom row 0,0,0,1) => the model matrix is
-//           identity/rigid, so that MVP maps CRAFT-LOCAL space straight to CLIP space.
-//           P decodes to fovy 69.90 deg, aspect = viewport, near 0.025, far infinite.
+// Renders custom UI inside the game's own 3D scene: it IAT-hooks SwapBuffers and draws with the
+// game's OpenGL, and it pointer-swaps the cached glUniformMatrix4fv to capture the workbench MVP
+// each frame. inv(P)*MVP is perfectly rigid, so that MVP maps craft-local voxel space straight to
+// clip space - meaning any world point (a partner's camera, a voxel) projects to screen with no
+// camera reconstruction. P decodes to fovy 69.90 deg, near 0.025, voxel scale 0.25 m.
 //
-// Voxel coords are craft-local, so projecting voxel*VOXEL_SCALE through that MVP puts a
-// marker exactly on a block - with no camera reconstruction and nothing to get wrong about
-// FOV/aspect/handedness. This DLL draws wireframe boxes at known voxels so that claim is
-// VISUALLY FALSIFIABLE: if the boxes sit on real blocks, the whole world-space overlay for
-// co-op (peer camera marker, peer's hovered block) is unlocked.
+// It has NO DllMain of its own: coop.cpp's DllMain drives it via overlay_start()/overlay_stop(),
+// so the overlay and the block-sync mod live in one DLL and tear down together. A small Steam
+// channel (separate from the block-sync channel) carries the local camera pose to the peer and
+// back; the "PARTNER" marker is drawn from the peer's pose.
 //
+// In-game keys:  F9 = show/hide overlay,  F10 = show/hide the top-left calibration readouts.
 // Live-tunable via wsdraw-cfg.txt (re-read once a second, no rebuild needed):
 //     scale 0.25        metres per voxel
-//     box   0 0 0       draw a box at this voxel (repeatable, up to 32)
+//     box   0 0 0       draw a calibration box at this voxel (repeatable, up to 32)
 //     span  3           also draw a span x span x span lattice from the origin
-//
-// F9 toggle. Unload: sw-mods.ps1 -Unload wsdraw   (BOM-tolerant, unlike the earlier probes)
 
 #include <windows.h>
 #include <gl/GL.h>
@@ -39,7 +35,8 @@ typedef void (APIENTRY *PFN_glBindVertexArray)(GLuint);
 
 static HMODULE g_self = nullptr;
 static HANDLE  g_net_worker = nullptr;
-static char    g_logpath[MAX_PATH], g_cmdpath[MAX_PATH], g_cfgpath[MAX_PATH];
+static HANDLE  g_boot_worker = nullptr;
+static char    g_logpath[MAX_PATH], g_cfgpath[MAX_PATH];
 static void**  g_iat_swap = nullptr;
 static BOOL (WINAPI *g_orig_swap)(HDC) = nullptr;
 static PFN_glUniformMatrix4fv g_real_um4 = nullptr, g_next_um4 = nullptr;
@@ -71,15 +68,13 @@ static float g_off[3] = {0, 0, 0};   // WORLD-metre offset applied to everything
 static bool  g_off_dirty = false;    // set on nudge; stops the file reload clobbering it
 static int   g_grid = 1;             // draw the labelled world ground grid
 static float g_gridext = 40.0f;      // half-extent of that grid, metres
-static int   g_ghost = 1;            // replay our own past camera as a stand-in peer
-static float g_ghostdelay = 3.0f;    // seconds of delay for that replay
+static volatile LONG g_hud = 0;      // F10 toggles the top-left calibration/status readouts (off by default)
 static DWORD g_cfg_last = 0;
 
 static void load_cfg() {
     FILE* f = nullptr;
     if (fopen_s(&f, g_cfgpath, "r") || !f) return;
-    int nb = 0; float sc = g_scale; int sp = g_span, gr = g_grid, gh = g_ghost;
-    float gd = g_ghostdelay;
+    int nb = 0; float sc = g_scale; int sp = g_span, gr = g_grid;
     float ox = g_off[0], oy = g_off[1], oz = g_off[2], ge = g_gridext;
     char line[256];
     while (fgets(line, sizeof line, f)) {
@@ -88,8 +83,6 @@ static void load_cfg() {
         else if (sscanf_s(line, " span %d", &sp) == 1) {}
         else if (sscanf_s(line, " grid %d", &gr) == 1) {}
         else if (sscanf_s(line, " gridext %f", &ge) == 1) {}
-        else if (sscanf_s(line, " ghost %d", &gh) == 1) {}
-        else if (sscanf_s(line, " ghostdelay %f", &gd) == 1) {}
         else if (sscanf_s(line, " offset %f %f %f", &a, &b, &c) == 3) { ox=a; oy=b; oz=c; }
         // NOTE: the offset read here is DISCARDED once the user has nudged (see g_off_dirty).
         // Without that, the once-a-second reload silently undid every adjustment.
@@ -99,7 +92,6 @@ static void load_cfg() {
     }
     fclose(f);
     g_scale = sc; g_nboxes = nb; g_span = sp; g_grid = gr; g_gridext = ge;
-    g_ghost = gh; g_ghostdelay = gd;
     if (!g_off_dirty) { g_off[0] = ox; g_off[1] = oy; g_off[2] = oz; }
 }
 static void save_cfg() {   // so live nudges survive a reinject
@@ -156,16 +148,13 @@ static float g_cam[3], g_fwd[3]; static long g_best_hits = 0;
 struct RigidInfo { long hits; float cam[3]; };
 static RigidInfo g_rigid[16]; static int g_nrigid_log = 0;
 static float g_up[3], g_right[3];
-// camera-pose history, so a delayed replay can stand in for a remote peer
 struct CamPose { float pos[3], fwd[3], up[3], right[3]; DWORD tick; };
-#define NHIST 1024
-static CamPose g_hist[NHIST]; static unsigned g_hist_w = 0;
 // peer/local camera pose shared with the net worker (declared here; used by select_best + draw,
 // which precede the transport code near the bottom of the file)
 static CamPose g_peer; static volatile LONG g_have_peer = 0; static DWORD g_peer_last = 0;
 static CamPose g_local_snapshot; static volatile LONG g_have_local = 0;
 static volatile LONG g_net_ok = 0;
-static uint64_t g_peerid = 0;   // 0 = no partner configured -> self-ghost only (used by draw())
+static uint64_t g_peerid = 0;   // 0 = no partner configured (used by draw())
 // seqlocks so the 12-float pose copies between the render thread and net_worker cannot tear
 // (single writer / single reader each). Odd seq = write in progress; reader retries.
 static volatile LONG g_local_seq = 0, g_peer_seq = 0;
@@ -269,12 +258,6 @@ static void select_best() {
         g_up[r]    =  mget(bestvm, 1, r);
         g_fwd[r]   = -mget(bestvm, 2, r);
     }
-    // Record the camera pose into a ring. Replaying an older entry as a "peer" proves the
-    // whole peer-camera-marker render path on ONE machine, before any networking exists.
-    CamPose& cp = g_hist[g_hist_w % NHIST];
-    for (int i = 0; i < 3; i++) { cp.pos[i]=g_cam[i]; cp.fwd[i]=g_fwd[i]; cp.up[i]=g_up[i]; cp.right[i]=g_right[i]; }
-    cp.tick = GetTickCount();
-    g_hist_w++;
     // publish the latest local pose for the net worker to send (seqlock: single writer here)
     publish_pose(g_local_snapshot, &g_local_seq, g_cam, g_fwd, g_up, g_right);
     InterlockedExchange(&g_have_local, 1);
@@ -462,83 +445,75 @@ static void draw(HDC hdc) {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); glLineWidth(2.0f);
 
     char line[160];
-    // HUD panel. Sits at y=100 to clear the game's own FPS readout and top toolbar, and
-    // above the colour palette (which starts around y=220 at x<100).
-    const int HX = 8, HY = 100, ROW = 14, NROWS = 6;
-    const int HW = 620, HH = NROWS * ROW + 10;
-    g_px = 2;                                    // 8px per char cell - 3 was overflowing
-    glColor4f(0.05f, 0.06f, 0.09f, 0.85f);
-    glBegin(GL_QUADS);
-      glVertex2f((float)HX, (float)HY); glVertex2f((float)(HX+HW), (float)HY);
-      glVertex2f((float)(HX+HW), (float)(HY+HH)); glVertex2f((float)HX, (float)(HY+HH));
-    glEnd();
-    int row = 0;
-    #define HUDROW (HY + 5 + (row++) * ROW)
+    const bool hud      = InterlockedCompareExchange(&g_hud, 0, 0) != 0;
+    const bool haveBest = InterlockedCompareExchange(&g_have_best, 0, 0) != 0;
 
-    if (InterlockedCompareExchange(&g_have_best, 0, 0)) {
-        if (g_grid) draw_world_grid();
-        for (int i = 0; i < g_nboxes; i++)
-            draw_voxel_box(g_boxes[i][0], g_boxes[i][1], g_boxes[i][2], 0.2f, 1.0f, 0.4f);
-        for (int x = 0; x < g_span; x++) for (int y = 0; y < g_span; y++) for (int z = 0; z < g_span; z++)
-            draw_voxel_box(x, y, z, 1.0f, 0.55f, 0.1f);
-        float ox, oy;                                    // where our lattice origin lands
-        if (project(g_best, g_off[0], g_off[1], g_off[2], &ox, &oy)) {
-            glColor4f(1, 0.2f, 0.2f, 1);
-            glBegin(GL_LINES);
-              glVertex2f(ox-16, oy); glVertex2f(ox+16, oy);
-              glVertex2f(ox, oy-16); glVertex2f(ox, oy+16);
-            glEnd();
-            draw_text((int)ox + 18, (int)oy - 8, 1, 0.4f, 0.4f, "lattice origin");
-        }
-        // REAL peer, if a pose has arrived recently over Steam - this is the actual feature.
+    // THE FEATURE: draw the partner's camera marker whenever a fresh pose has arrived over
+    // Steam. Always shown (independent of the HUD toggle) so you can always see your partner.
+    bool peerFresh = false;
+    if (haveBest) {
         const DWORD peerAge = GetTickCount() - g_peer_last;
         CamPose peerSnap;
-        const bool peerFresh = InterlockedCompareExchange(&g_have_peer, 0, 0) && peerAge < 2000
-                               && read_pose(g_peer, &g_peer_seq, peerSnap);   // seqlock: stable copy
-        if (peerFresh) {
-            draw_peer_camera(peerSnap, "PARTNER", 0.3f, 1.0f, 0.5f);
-        }
-        // Stand-in peer: our own camera from ghostdelay seconds ago. Proves the marker path
-        // with no networking; auto-suppressed once a real partner is live.
-        else if (g_ghost && g_hist_w > 2) {
-            const DWORD want = GetTickCount() - (DWORD)(g_ghostdelay * 1000.0f);
-            const unsigned have = (g_hist_w < NHIST) ? g_hist_w : NHIST;
-            int bestI = -1; DWORD bestD = 0xFFFFFFFF;
-            for (unsigned k = 1; k <= have; k++) {
-                const CamPose& q = g_hist[(g_hist_w - k) % NHIST];
-                DWORD d = (q.tick > want) ? (q.tick - want) : (want - q.tick);
-                if (d < bestD) { bestD = d; bestI = (int)((g_hist_w - k) % NHIST); }
-            }
-            if (bestI >= 0) draw_peer_camera(g_hist[bestI], "PEER (you, delayed)", 0.35f, 0.8f, 1.0f);
-        }
-        sprintf_s(line, "MVP LOCKED  hits=%ld  scale=%.4f m/voxel  span=%d",
-                  g_best_hits, g_scale, g_span);
-        draw_text(HX+6, HUDROW, 0.3f, 1.0f, 0.5f, line);
-        sprintf_s(line, "cam %.2f %.2f %.2f  fwd %.2f %.2f %.2f",
-                  g_cam[0], g_cam[1], g_cam[2], g_fwd[0], g_fwd[1], g_fwd[2]);
-        draw_text(HX+6, HUDROW, 0.8f, 0.9f, 1.0f, line);
-        sprintf_s(line, "OFFSET  %8.3f %8.3f %8.3f m", g_off[0], g_off[1], g_off[2]);
-        draw_text(HX+6, HUDROW, 1.0f, 0.85f, 0.3f, line);
-        // also in voxels - if this lands on whole or half numbers the offset is structural
-        sprintf_s(line, "     =  %8.2f %8.2f %8.2f voxels",
-                  g_off[0]/g_scale, g_off[1]/g_scale, g_off[2]/g_scale);
-        draw_text(HX+6, HUDROW, 1.0f, 0.7f, 0.2f, line);
-        draw_text(HX+6, HUDROW, 0.6f, 0.7f, 0.8f,
-                  "arrows=X/Z  pgup/pgdn=Y  shift=fast ctrl=fine  F7=bring  F8=save");
-        // peer link status
-        if (!g_peerid)
-            draw_text(HX+6, HUDROW, 0.6f, 0.6f, 0.6f, "PEER: none (set coop-peer.txt) - showing self-ghost");
-        else if (peerFresh)
-            draw_text(HX+6, HUDROW, 0.3f, 1.0f, 0.5f, "PEER: PARTNER LIVE");
-        else
-            draw_text(HX+6, HUDROW, 1.0f, 0.8f, 0.3f, "PEER: waiting for partner (self-ghost meanwhile)");
-    } else {
-        draw_text(HX+6, HUDROW, 1.0f, 0.5f, 0.2f, "no rigid MVP candidate - is a craft on screen?");
-        sprintf_s(line, "candidates=%d  haveProj=%ld", g_ncand,
-                  InterlockedCompareExchange(&g_have_proj, 0, 0));
-        draw_text(HX+6, HUDROW, 0.8f, 0.8f, 0.8f, line);
+        peerFresh = InterlockedCompareExchange(&g_have_peer, 0, 0) && peerAge < 2000
+                    && read_pose(g_peer, &g_peer_seq, peerSnap);   // seqlock: stable copy
+        if (peerFresh) draw_peer_camera(peerSnap, "PARTNER", 0.3f, 1.0f, 0.5f);
     }
-    #undef HUDROW
+
+    // The calibration/status HUD (top-left readouts + the dev lattice). Hidden by default;
+    // F10 toggles it. Everything in here is for tuning/diagnostics, not normal play.
+    if (hud) {
+        const int HX = 8, HY = 100, ROW = 14, NROWS = 6;
+        const int HW = 620, HH = NROWS * ROW + 10;
+        g_px = 2;                                    // 8px per char cell
+        glColor4f(0.05f, 0.06f, 0.09f, 0.85f);
+        glBegin(GL_QUADS);
+          glVertex2f((float)HX, (float)HY); glVertex2f((float)(HX+HW), (float)HY);
+          glVertex2f((float)(HX+HW), (float)(HY+HH)); glVertex2f((float)HX, (float)(HY+HH));
+        glEnd();
+        int row = 0;
+        #define HUDROW (HY + 5 + (row++) * ROW)
+        if (haveBest) {
+            if (g_grid) draw_world_grid();
+            for (int i = 0; i < g_nboxes; i++)
+                draw_voxel_box(g_boxes[i][0], g_boxes[i][1], g_boxes[i][2], 0.2f, 1.0f, 0.4f);
+            for (int x = 0; x < g_span; x++) for (int y = 0; y < g_span; y++) for (int z = 0; z < g_span; z++)
+                draw_voxel_box(x, y, z, 1.0f, 0.55f, 0.1f);
+            float ox, oy;                                    // where our lattice origin lands
+            if (project(g_best, g_off[0], g_off[1], g_off[2], &ox, &oy)) {
+                glColor4f(1, 0.2f, 0.2f, 1);
+                glBegin(GL_LINES);
+                  glVertex2f(ox-16, oy); glVertex2f(ox+16, oy);
+                  glVertex2f(ox, oy-16); glVertex2f(ox, oy+16);
+                glEnd();
+                draw_text((int)ox + 18, (int)oy - 8, 1, 0.4f, 0.4f, "lattice origin");
+            }
+            sprintf_s(line, "MVP LOCKED  hits=%ld  scale=%.4f m/voxel  span=%d",
+                      g_best_hits, g_scale, g_span);
+            draw_text(HX+6, HUDROW, 0.3f, 1.0f, 0.5f, line);
+            sprintf_s(line, "cam %.2f %.2f %.2f  fwd %.2f %.2f %.2f",
+                      g_cam[0], g_cam[1], g_cam[2], g_fwd[0], g_fwd[1], g_fwd[2]);
+            draw_text(HX+6, HUDROW, 0.8f, 0.9f, 1.0f, line);
+            sprintf_s(line, "OFFSET  %8.3f %8.3f %8.3f m", g_off[0], g_off[1], g_off[2]);
+            draw_text(HX+6, HUDROW, 1.0f, 0.85f, 0.3f, line);
+            sprintf_s(line, "     =  %8.2f %8.2f %8.2f voxels",
+                      g_off[0]/g_scale, g_off[1]/g_scale, g_off[2]/g_scale);
+            draw_text(HX+6, HUDROW, 1.0f, 0.7f, 0.2f, line);
+            draw_text(HX+6, HUDROW, 0.6f, 0.7f, 0.8f,
+                      "arrows=X/Z  pgup/pgdn=Y  shift=fast ctrl=fine  F7=bring  F8=save  F9=overlay  F10=hud");
+            if (!g_peerid)
+                draw_text(HX+6, HUDROW, 0.6f, 0.6f, 0.6f, "PEER: none (set coop-peer.txt)");
+            else if (peerFresh)
+                draw_text(HX+6, HUDROW, 0.3f, 1.0f, 0.5f, "PEER: PARTNER LIVE");
+            else
+                draw_text(HX+6, HUDROW, 1.0f, 0.8f, 0.3f, "PEER: waiting for partner");
+        } else {
+            draw_text(HX+6, HUDROW, 1.0f, 0.5f, 0.2f, "no rigid MVP candidate - is a craft on screen?");
+            sprintf_s(line, "candidates=%d  haveProj=%ld", g_ncand,
+                      InterlockedCompareExchange(&g_have_proj, 0, 0));
+            draw_text(HX+6, HUDROW, 0.8f, 0.8f, 0.8f, line);
+        }
+        #undef HUDROW
+    }
 
     glMatrixMode(GL_PROJECTION); glPopMatrix();
     glMatrixMode(GL_MODELVIEW);  glPopMatrix();
@@ -600,6 +575,9 @@ static BOOL WINAPI my_SwapBuffers(HDC hdc) {
             static SHORT prev = 0; SHORT now = GetAsyncKeyState(VK_F9);
             if ((now & 0x8000) && !(prev & 0x8000)) InterlockedExchange(&g_visible, !g_visible);
             prev = now;
+            static SHORT prevH = 0; SHORT nowH = GetAsyncKeyState(VK_F10);   // F10 = show/hide the HUD readouts
+            if ((nowH & 0x8000) && !(prevH & 0x8000)) InterlockedExchange(&g_hud, !g_hud);
+            prevH = nowH;
             // live offset nudge - drive the lattice onto the craft instead of guessing the
             // body transform. Only while the game has focus, so we never eat someone else's keys.
             if (GetForegroundWindow() == WindowFromDC(hdc)) {
@@ -684,13 +662,13 @@ static void** find_iat_slot(ULONGLONG b, const char* dll, const char* fn) {
 
 // ======================= STEAM P2P TRANSPORT (peer camera) =======================
 // Self-contained, so wsdraw never has to touch coop.cpp (a parallel session owns it).
-// Reuses the game's already-initialised steam_api64.dll, exactly like coop.dll, but on
+// Reuses the game's already-initialised steam_api64.dll, exactly like coopworkbench.dll, but on
 // its OWN channel so the two DLLs' traffic never mixes. Peer SteamID64 comes from the same
 // coop-peer.txt the co-op mod uses, so the user configures a partner only once.
 //
 // SESSION-SHARING SAFETY: ISteamNetworkingMessages sessions are per-identity, not per-channel,
-// so coop.dll and wsdraw share ONE session with the peer. We therefore ACCEPT and KEEPALIVE
-// (both safe/idempotent) but NEVER CloseSessionWithUser while coop.dll is loaded - closing
+// so coopworkbench.dll and wsdraw share ONE session with the peer. We therefore ACCEPT and KEEPALIVE
+// (both safe/idempotent) but NEVER CloseSessionWithUser while coopworkbench.dll is loaded - closing
 // would tear down coop's live block-sync link. Standalone (no coop), we may close to recover.
 typedef void*    (*ifaceAccessor_t)();
 typedef uint64_t (*getSteamID_t)(void*);
@@ -753,11 +731,11 @@ static bool steam_init() {
         char t[64] = {0}; if (fgets(t, sizeof t, pf)) { uint64_t v = _strtoui64(t, nullptr, 10); if (v) g_peerid = v; }
         fclose(pf);
     }
-    g_coop_present = (GetModuleHandleA("coop.dll") != nullptr);
-    logline("net: our=%llu peer=%llu channel=%d coop.dll=%s %s",
+    g_coop_present = (GetModuleHandleA("coopworkbench.dll") != nullptr);
+    logline("net: our=%llu peer=%llu channel=%d coopworkbench.dll=%s %s",
             (unsigned long long)g_myid, (unsigned long long)g_peerid, WS_CHANNEL,
             g_coop_present ? "present (will NOT close sessions)" : "absent",
-            g_peerid ? "" : "(no coop-peer.txt -> self-ghost only)");
+            g_peerid ? "" : "(no coop-peer.txt -> no partner configured)");
     if (g_peerid) { pClear(g_peerIdent); pSetID(g_peerIdent, g_peerid); p_accept(g_net, g_peerIdent); }
     return true;
 }
@@ -769,10 +747,10 @@ static void net_send_pose() {
     PoseMsg m; m.magic = WS_MAGIC; m.ver = 1; m.kind = 1;
     for (int i = 0; i < 3; i++) { m.pos[i]=local.pos[i]; m.fwd[i]=local.fwd[i]; m.up[i]=local.up[i]; m.right[i]=local.right[i]; }
     int rc = p_send(g_net, g_peerIdent, &m, sizeof m, WS_SEND_UNRELIABLE, WS_CHANNEL);  // pose = latest-wins
-    // Session-close is CATASTROPHIC if coop.dll shares this per-identity session, so re-check coop
+    // Session-close is CATASTROPHIC if coopworkbench.dll shares this per-identity session, so re-check coop
     // presence LIVE at the close site (the init-time latch goes stale when coop is injected/unloaded
     // after us). Cheap: only runs on the error branch. Err toward never-closing when coop may be up.
-    bool coop_now = g_coop_present || (GetModuleHandleA("coop.dll") != nullptr);
+    bool coop_now = g_coop_present || (GetModuleHandleA("coopworkbench.dll") != nullptr);
     if ((rc == 35 || rc == 3) && p_close && !coop_now) {
         p_close(g_net, g_peerIdent); InterlockedExchange(&g_net_ok, 0);
     }
@@ -812,51 +790,47 @@ static DWORD WINAPI net_worker(LPVOID) {
     return 0;
 }
 
-static DWORD WINAPI cmd_watcher(LPVOID) {
-    for (;;) {
-        Sleep(250);
-        FILE* f = nullptr;
-        if (!fopen_s(&f, g_cmdpath, "r") && f) {
-            char buf[64] = {0}; fgets(buf, sizeof buf, f); fclose(f); remove(g_cmdpath);
-            // BOM- and whitespace-tolerant, and it SAYS SO when it does not understand -
-            // the earlier probes silently ate a UTF-8 BOM and looked like they had ignored you.
-            char* p = buf;
-            if ((unsigned char)p[0]==0xEF && (unsigned char)p[1]==0xBB && (unsigned char)p[2]==0xBF) p += 3;
-            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-            if (!_strnicmp(p, "unload", 6)) {
-                logline("unload requested");
-                InterlockedExchange(&g_want_exit, 1);
-                // stop the net worker before anything frees - it touches Steam + our globals.
-                // MANDATORY join: never free the image while the thread could still run, or a
-                // stalled Steam call would return into unmapped code. The worker checks g_want_exit
-                // every 50ms and Steam's calls are non-blocking, so this returns promptly in practice.
-                if (g_net_worker) {
-                    while (WaitForSingleObject(g_net_worker, 1000) != WAIT_OBJECT_0)
-                        logline("still waiting for net_worker to exit before unload...");
-                    CloseHandle(g_net_worker); g_net_worker = nullptr;
-                }
-                for (int i = 0; i < 200 && !InterlockedCompareExchange(&g_gl_freed, 0, 0); i++) Sleep(10);
-                DWORD o;
-                if (g_slot && g_next_um4 && VirtualProtect(g_slot, 8, PAGE_READWRITE, &o)) {
-                    *g_slot = (void*)g_next_um4; VirtualProtect(g_slot, 8, o, &o);
-                }
-                if (g_iat_swap && g_orig_swap && VirtualProtect(g_iat_swap, sizeof(void*), PAGE_READWRITE, &o)) {
-                    *g_iat_swap = (void*)g_orig_swap; VirtualProtect(g_iat_swap, sizeof(void*), o, &o);
-                }
-                for (int i = 0; i < 400 && InterlockedCompareExchange(&g_inhook, 0, 0); i++) Sleep(5);
-                Sleep(250);
-                logline("unloaded cleanly (frames %u)", g_frames);
-                FreeLibraryAndExitThread(g_self, 0);
-            } else if (*p) logline("unrecognised command: \"%s\" (expected \"unload\")", p);
-        }
+// Tear down the overlay: stop the net worker, restore both the SwapBuffers IAT and the chained
+// glUniformMatrix4fv slot, and wait for any in-flight SwapBuffers call to leave our code. Called
+// by overlay_stop() from coop.cpp's unload path - the MERGED DLL does its single
+// FreeLibraryAndExitThread over in coop's cmd_watcher, never here.
+static void overlay_teardown() {
+    logline("overlay teardown requested");
+    InterlockedExchange(&g_want_exit, 1);
+    // Join boot FIRST. boot installs the SwapBuffers IAT hook and spawns net_worker, so it must
+    // finish before we restore hooks or read g_net_worker - otherwise a late boot could re-hook or
+    // spawn a thread into the about-to-be-unmapped image (use-after-free). boot has no blocking
+    // calls, so this returns promptly.
+    if (g_boot_worker) {
+        WaitForSingleObject(g_boot_worker, INFINITE);
+        CloseHandle(g_boot_worker); g_boot_worker = nullptr;
     }
+    // stop the net worker before anything frees - it touches Steam + our globals. MANDATORY join:
+    // the worker checks g_want_exit every 50ms and Steam's calls are non-blocking, so this is prompt.
+    if (g_net_worker) {
+        while (WaitForSingleObject(g_net_worker, 1000) != WAIT_OBJECT_0)
+            logline("still waiting for net_worker to exit before unload...");
+        CloseHandle(g_net_worker); g_net_worker = nullptr;
+    }
+    // let my_SwapBuffers observe g_want_exit and delete its font/GL lists on a live frame (bounded)
+    for (int i = 0; i < 200 && !InterlockedCompareExchange(&g_gl_freed, 0, 0); i++) Sleep(10);
+    DWORD o;
+    if (g_slot && g_next_um4 && VirtualProtect(g_slot, 8, PAGE_READWRITE, &o)) {
+        *g_slot = (void*)g_next_um4; VirtualProtect(g_slot, 8, o, &o);
+    }
+    if (g_iat_swap && g_orig_swap && VirtualProtect(g_iat_swap, sizeof(void*), PAGE_READWRITE, &o)) {
+        *g_iat_swap = (void*)g_orig_swap; VirtualProtect(g_iat_swap, sizeof(void*), o, &o);
+    }
+    // wait (bounded) for any thread currently inside my_SwapBuffers to leave before coop frees us
+    for (int i = 0; i < 400 && InterlockedCompareExchange(&g_inhook, 0, 0); i++) Sleep(5);
+    Sleep(250);
+    logline("overlay unhooked cleanly (frames %u)", g_frames);
 }
 
 static DWORD WINAPI boot(LPVOID) {
     char p[MAX_PATH]; GetModuleFileNameA(g_self, p, MAX_PATH);
     char* s = strrchr(p, '\\'); if (s) *(s+1) = 0;
     sprintf_s(g_logpath, "%swsdraw-log.txt", p);
-    sprintf_s(g_cmdpath, "%swsdraw-cmd.txt", p);
     sprintf_s(g_cfgpath, "%swsdraw-cfg.txt", p);
     sprintf_s(g_peerpath, "%scoop-peer.txt", p);   // share the co-op mod's partner config
     logline("=== wsdraw boot ===");
@@ -870,13 +844,17 @@ static DWORD WINAPI boot(LPVOID) {
         VirtualProtect(g_iat_swap, sizeof(void*), o, &o);
         logline("SwapBuffers hooked - orange lattice = voxels 0..%d, red cross = craft origin", g_span);
     }
-    CreateThread(nullptr, 0, cmd_watcher, nullptr, 0, nullptr);
     if (steam_init()) { g_net_worker = CreateThread(nullptr, 0, net_worker, nullptr, 0, nullptr); }
     return 0;
 }
 
-BOOL APIENTRY DllMain(HMODULE h, DWORD r, LPVOID) {
-    if (r == DLL_PROCESS_ATTACH) { g_self = h; DisableThreadLibraryCalls(h);
-                                   CreateThread(nullptr, 0, boot, nullptr, 0, nullptr); }
-    return TRUE;
+// ---- merge entry points ----------------------------------------------------
+// This file has NO DllMain of its own - it is compiled straight into coopworkbench.dll, and coop.cpp's
+// DllMain drives the overlay's lifecycle: overlay_start() at setup, overlay_stop() on unload.
+extern "C" void overlay_start(HMODULE self) {
+    g_self = self;
+    g_boot_worker = CreateThread(nullptr, 0, boot, nullptr, 0, nullptr);
+}
+extern "C" void overlay_stop() {
+    overlay_teardown();
 }

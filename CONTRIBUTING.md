@@ -13,7 +13,7 @@ players empty from the same origin block). The single most valuable contribution
 Open an issue with:
 - **Where** you tried it (gamemode + which workbench).
 - **What you did** and **what happened** (worked / blocks landed in the wrong spot / crash / nothing).
-- Both players' `coop-log.txt` if something went wrong (see below about scrubbing it first).
+- Both players' `coopworkbench-log.txt` if something went wrong (see below about scrubbing it first).
 
 "I tried it in career mode and blocks appeared 3 tiles off" is a genuinely great bug report.
 
@@ -26,7 +26,7 @@ Open an issue with:
 
 ## Before you post logs or files
 
-`coop-log.txt` and `coop-peer.txt` can contain **SteamID64s** (yours and your partner's). Please
+`coopworkbench-log.txt` and `coop-peer.txt` can contain **SteamID64s** (yours and your partner's). Please
 **remove or redact them** before pasting logs into a public issue. Never commit `coop-peer.txt`,
 `*-log.txt`, built `.dll`s, or release `.zip`s — they're already in [`.gitignore`](.gitignore).
 

@@ -8,14 +8,14 @@ record — update it after each cross-machine test.
 
 ## 2026-07-23 — combined test: overlay + connections
 
-Both machines ran the combined portable package (`inject-both.bat` → `coop.dll` + `wsdraw.dll`).
-Everything expected worked.
+Both machines ran the combined portable package (two DLLs at the time — `coopworkbench.dll` + `wsdraw.dll`;
+since **merged into a single `coopworkbench.dll`**, same features, one inject). Everything expected worked.
 
 ### Proven end-to-end on two real machines
 
 - **Peer-camera overlay over Steam** — `wsdraw-log`: `net: *** peer camera link LIVE ***`. The partner's
   camera rendered as the world-space **"PARTNER"** frustum from live network data (not the delayed
-  self-ghost). The session-sharing safeguard engaged (`coop.dll=present (will NOT close sessions)`), and
+  self-ghost). The session-sharing safeguard engaged (`coopworkbench.dll=present (will NOT close sessions)`), and
   the mandatory-join hot-unload was clean (`unloaded cleanly`). *Feature "see your partner's camera" is
   done across machines.*
 - **Electric-power connections** — `type=4 (ELECTRIC)` detected → sent → `<<< APPLIED CONN` on the peer,
@@ -52,12 +52,12 @@ side is missing); items 2–5 are the "property edits / component internal state
 
 ---
 
-## Observation for `coop.dll` (not the overlay)
+## Observation for `coopworkbench.dll` (not the overlay)
 
 `coop-log` on hot-unload: `UNLOAD: worker wait -> 258 (0x102=timeout)` then `freeing library now`. It
 frees the DLL after a join **timeout** — the same use-after-free-risk pattern the overlay's adversarial
 review caught and fixed (mandatory join: loop the wait until the worker has provably exited, never free on
-timeout). Worth hardening `coop.dll`'s unload the same way.
+timeout). Worth hardening `coopworkbench.dll`'s unload the same way.
 
 ---
 

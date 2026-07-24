@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report! **Before posting logs, remove any SteamID64s** from `coop-log.txt` /
+        Thanks for the report! **Before posting logs, remove any SteamID64s** from `coopworkbench-log.txt` /
         `coop-peer.txt` — they identify your and your partner's Steam accounts.
   - type: textarea
     id: what-happened
@@ -57,7 +57,7 @@ body:
     id: logs
     attributes:
       label: Logs (SteamIDs removed)
-      description: Paste relevant lines from coop-log.txt on both machines, with IDs redacted.
+      description: Paste relevant lines from coopworkbench-log.txt on both machines, with IDs redacted.
       render: text
     validations:
       required: false
