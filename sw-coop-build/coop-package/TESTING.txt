@@ -1,0 +1,80 @@
+======================================================================
+  TWO-MACHINE TEST CHECKLIST  -  Stormworks Co-op Editor
+======================================================================
+Goal: confirm every synced feature works between two real machines (A and B)
+over Steam P2P. Run through it once A->B, then swap and run B->A.
+
+----------------------------------------------------------------------
+0. PREP (both machines)
+----------------------------------------------------------------------
+[ ] Both on Steam (logged in) with Stormworks running, same base game +
+    the SAME mods installed.
+[ ] Both have this folder (coop.dll + wsdraw.dll + the scripts).
+[ ] Exchange SteamID64s (inject-both.bat prints yours).
+
+----------------------------------------------------------------------
+1. CONNECT
+----------------------------------------------------------------------
+[ ] Both: open the vehicle workbench, empty craft.
+[ ] Both: place ONE block at the SAME origin spot (so coordinates line up).
+[ ] Both: run inject-both.bat, paste the partner's SteamID64.  (This loads the
+    co-op sync AND the overlay together.)
+[ ] Both: check coop-log.txt shows your 'our=' id + the partner id, and
+    within a few seconds '*** SESSION ACCEPTED ***' or '*** LINK LIVE ***'.
+[ ] Both: check wsdraw-log.txt shows 'net: our=... peer=...' and, once the
+    partner is in the workbench, 'net: *** peer camera link LIVE ***'.
+[ ] Both: your FIRST edit auto-arms the apply path (log shows either
+    'ARMED (single-click)' or 'AUTO-ARMED (click-drag, no single-click)').
+    No separate arm step is needed.
+
+If the link never goes live: confirm both SteamIDs are correct (each other's,
+not your own), Steam is running, and neither is blocked by a firewall.
+
+----------------------------------------------------------------------
+2. FEATURE TESTS  (do the action on A, verify on B)
+----------------------------------------------------------------------
+[ ] SINGLE PLACE   A places one block  -> appears on B, same spot.
+[ ] DRAG PLACE     A drags a line (~10) -> whole line appears on B.
+[ ] AREA FILL      A drags a big area (30-50) -> all appear on B, none missing.
+                   (log on B: many '<<< APPLIED', no 'apply EXCEPTION'.)
+[ ] WEDGE BEAM     A drags a beam of wedges -> B shows a CLEAN solid beam
+                   (no sawtooth / no flipped top row). Try pyramids too.
+[ ] ROTATION       A places a rotated block -> B matches the orientation.
+[ ] DELETE         A erases a block (eraser tool) -> removed on B instantly.
+[ ] PAINT WHOLE    A paints a whole block -> B shows the new color.
+[ ] PAINT FACE     A paints ONE face -> B recolors that SAME face only.
+[ ] CONNECTION     A connects two electric-power nodes with a wire
+                   -> the wire appears on B between the same two nodes.
+                   (Electric power first; other wire types still coming.)
+
+----------------------------------------------------------------------
+2b. OVERLAY  (the partner-camera marker)
+----------------------------------------------------------------------
+[ ] Both in the workbench with the craft on screen.
+[ ] A: move/orbit your camera. On B, a cyan "PARTNER" frustum should move to
+    match where A is looking (and vice-versa). It has a drop-line to the
+    ground and an "up" spike.
+[ ] If no PARTNER marker appears but a cyan "PEER (you, delayed)" one does,
+    the overlay renders fine but the peer packet isn't arriving - check
+    wsdraw-log.txt for 'peer camera link LIVE' and that coop-peer.txt matches.
+[ ] The overlay never blocks building - block sync must keep working
+    regardless of whether the marker shows.
+
+----------------------------------------------------------------------
+3. REVERSE + CONCURRENT
+----------------------------------------------------------------------
+[ ] Repeat sections 2 + 2b with B acting and A verifying.
+[ ] Both build at once for a minute -> edits from both sides land, nothing
+    is lost, both partner-camera markers track, and neither game crashes.
+
+----------------------------------------------------------------------
+IF SOMETHING FAILS
+----------------------------------------------------------------------
+Grab coop-log.txt from BOTH machines at the moment it failed and note which
+step. Useful markers:
+  >>> SEND ...        an edit left your machine
+  <<< APPLIED ...     an edit was applied on the receiver
+  NOT ARMED           rare now: an edit arrived just before the first placement armed
+  UNKNOWN def '...'   the receiver is missing that mod/part
+  apply EXCEPTION     a placement failed (includes the voxel + part name)
+======================================================================

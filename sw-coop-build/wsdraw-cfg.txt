@@ -1,0 +1,5 @@
+scale 0.25000
+span 3
+grid 1
+gridext 40.0
+offset -27.897 1.266 -4.281

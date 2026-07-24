@@ -1,0 +1,19 @@
+# Build artifacts (regenerate: sw-coop-build/build-coop.cmd)
+*.obj
+*.dll
+*.lib
+*.exp
+*.bin
+*.pdb
+
+# Runtime state & logs
+*-log.txt
+coop-log.txt
+coop-cmd.txt
+
+# Personal / machine-specific — never commit (contains SteamID64s)
+coop-peer.txt
+peer.txt
+
+# Release bundles (regenerate from coop-package/)
+*.zip

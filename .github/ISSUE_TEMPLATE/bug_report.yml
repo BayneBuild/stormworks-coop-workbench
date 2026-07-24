@@ -1,0 +1,63 @@
+name: "🐞 Bug / it didn't work"
+description: Something crashed, desynced, or behaved wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! **Before posting logs, remove any SteamID64s** from `coop-log.txt` /
+        `coop-peer.txt` — they identify your and your partner's Steam accounts.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened?
+      placeholder: "I placed a block on machine A and it appeared 3 tiles off on machine B."
+    validations:
+      required: true
+  - type: dropdown
+    id: gamemode
+    attributes:
+      label: Gamemode
+      options:
+        - Custom
+        - Career / Survival
+        - Other (say which in the description)
+    validations:
+      required: true
+  - type: input
+    id: workbench
+    attributes:
+      label: Which workbench?
+      description: e.g. starter vehicle workbench, a larger bench, a career bench…
+      placeholder: "starter vehicle workbench"
+    validations:
+      required: true
+  - type: dropdown
+    id: machines
+    attributes:
+      label: Setup
+      options:
+        - Two machines (real co-op)
+        - One machine (local test)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Both open the workbench, empty craft, one block at the origin
+        2. Run inject-both.bat, exchange SteamIDs
+        3. A drags a line of blocks
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (SteamIDs removed)
+      description: Paste relevant lines from coop-log.txt on both machines, with IDs redacted.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,30 @@
+name: "✨ Feature idea"
+description: Suggest something for Coop Workbench to do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The roadmap lives in the [README](../blob/main/README.md#roadmap--the-north-star) — feel free
+        to reference it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem or gap?
+      placeholder: "There's no way to sync battery charge % between machines."
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to see?
+      placeholder: "Sync component properties (battery name/charge, logic constants, …)."
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Alternatives you considered, how important it is to you, etc.
+    validations:
+      required: false
