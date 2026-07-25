@@ -6,6 +6,31 @@ record — update it after each cross-machine test.
 
 ---
 
+## 2026-07-24 — connections: energize + logic + disconnect; overlay live (merged DLL)
+
+Single merged `coopworkbench.dll` on both machines. New this session:
+
+- **Electric wires ENERGIZE.** A placed the wires, B spawned the craft — the light **powered**. So a
+  forged wire (flat-store write) genuinely carries power; **no logic-net graph hookup needed** (drops the
+  "energize" TODO). Logs: `type=4 (ELECTRIC)` → `>>> SEND conn EResult=1` → `<<< APPLIED CONN`.
+- **Logic / on-off connections sync AND function.** A toggle button → light worked on B's spawned craft.
+  **Type enum learned: electric = `4`, on/off logic = `0`** (the earlier `1` guess was wrong). So the
+  connection apply/forge path is confirmed for BOTH electric and logic — not electric-only anymore.
+- **Disconnect sync works (electric), echo-free.** connect↔disconnect ×3 on one wire produced **exactly
+  3** `[conn] DEL` → `>>> SEND disconn EResult=1`, one per action — no re-broadcast bounce, so the
+  `conn_prev_remove` echo-suppression is correct. Apply confirmed visually (wire vanished on B). *(The
+  partner-side `<<< APPLIED DISCONN` line wasn't captured — his log was stale — but the visual confirms it.)*
+- **Merged overlay validated live** — `wsdraw-log`: `peer camera link LIVE` on both sides in the same
+  session. The wsdraw→`coopworkbench.dll` merge holds up in a real 2-machine run.
+
+### Coordinate insight (overlay)
+Exiting the workbench into the world with the mod running, the **partner's camera marker keeps tracking in
+the real world** at the starter build area. So the **workbench is the real world at the craft's spawn
+location, just with the world geometry unrendered** — the workbench camera is TRUE world coordinates, and
+**body origin = the spawn-platform world position.** See [`WORLD-SPACE-OVERLAY.md`](WORLD-SPACE-OVERLAY.md).
+
+---
+
 ## 2026-07-23 — combined test: overlay + connections
 
 Both machines ran the combined portable package (two DLLs at the time — `coopworkbench.dll` + `wsdraw.dll`;
@@ -25,15 +50,15 @@ since **merged into a single `coopworkbench.dll`**, same features, one inject). 
 
 ---
 
-## Known gaps — not synced yet (as of 2026-07-23)
+## Known gaps — not synced yet (as of 2026-07-24)
 
-Ordered roughly by effort. Items 1 is the smallest next win (detect+send already work — only the apply
-side is missing); items 2–5 are the "property edits / component internal state" scope.
+Ordered roughly by effort. Items 2–5 are the "property edits / component internal state" scope.
 
-1. **Non-electric connections.** Logic (`type=1 default/logic`), and `type=0` / `type=5` wires are
-   **detected and sent**, but only electric (`type=4`) is confirmed **applied** on the peer. The
-   connection apply/forge path is validated for electric only; the other wire types (logic, data,
-   composite, video, audio, fluid, rope) need their apply path finished and tested.
+1. **Non-electric connections — partly closed (2026-07-24).** Electric (`type=4`) AND on/off logic
+   (`type=0`) are now confirmed **applied + functioning** on the peer (add *and* disconnect). Remaining
+   untested wire types: number, composite/data, video, audio, fluid (rope is a separate system). The
+   apply/forge and the disconnect-diff are both type-agnostic, so these are expected to work — they just
+   need a confirming test.
 
 2. **Microcontroller custom SIZE.** A microcontroller's dimensions are a configurable property. The
    place-forge currently ships only `{defName, pos, rotation, color, cat}`, so a **resized microcontroller

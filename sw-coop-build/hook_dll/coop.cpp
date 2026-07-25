@@ -89,10 +89,12 @@ static const int STEAL_CONN_ADD = 16;            // push rbx+sub+mov rbx,rcx+mov
 static const int CONN_VA=0x00, CONN_VB=0x0C, CONN_TYPE=0x28, CONN_STRIDE=0x30;
 static const int CONN_ELECTRIC=4;   // electric power = type 4 (confirmed in-game; the "2" tooltip was wrong)
 typedef void* (*connAdd_t)(void*);  // 0x8B70C0(&deque) -> new (empty) 0x30 record; we fill voxels+type
+static const ULONGLONG CONN_ERASE_OFF = 0x8B6F00; // connlist_erase_at(&deque, logical index) - disconnect forge
+typedef void  (*connErase_t)(void*, unsigned);    // 0x8B6F00(&deque, idx) removes one wire
 // editor cursor world position (doubles) - set to voxel*0.25 to aim a forged delete
 static const ULONGLONG CUR_X = 0x12F8, CUR_Y = 0x1300, CUR_Z = 0x1308;
 static const ULONGLONG GETTMPL_OFF = 0x46F380;   // getTemplateByName(registry, &{char*,u32 len})
-static unsigned long long g_place_fn=0, g_add_fn=0, g_gettmpl_fn=0;  // resolved at runtime by signature scan
+static unsigned long long g_place_fn=0, g_add_fn=0, g_gettmpl_fn=0, g_conn_erase_fn=0;  // resolved at runtime by signature scan
 static const ULONGLONG REG_ADJ     = 0xBB670;    // registry = *(editor+0x70) + 0xBB670
 static const ULONGLONG ROT_OFF     = 0x14a0;     // editor+0x14a0 = 3x3 rotation ints (9 x int32)
 static const ULONGLONG TMPL_NAME_PTR = 0x288;    // template+0x288 = name char*
@@ -262,6 +264,8 @@ static void apply_delete(int x, int y, int z);   // fwd
 static void apply_paint(int x, int y, int z, const uint32_t inl[4], const uint32_t face[], unsigned nface);   // fwd (kind=3 = repaint)
 static void force_remesh(unsigned long long editor, void* comp);   // fwd
 static void apply_conn_add(const int va[3], const int vb[3], int type);   // fwd (kind=4 = connection add)
+static void apply_conn_del(const int va[3], const int vb[3], int type);   // fwd (kind=5 = connection remove)
+static void emit_disconn(const int va[3], const int vb[3], int type);     // fwd (send a disconnect)
 static volatile long g_aq_wr=0, g_aq_rd=0;
 
 static void apply_place(const PlaceMsg* m, const char* name);   // fwd
@@ -297,6 +301,10 @@ static void drain_apply_queue() {
             int va[3]={it->x,it->y,it->z}, vb[3]={it->rot[0],it->rot[1],it->rot[2]};
             apply_conn_add(va, vb, it->rot[3]);
         }
+        else if (it->kind == 5) {   // connection remove: same layout as kind=4
+            int va[3]={it->x,it->y,it->z}, vb[3]={it->rot[0],it->rot[1],it->rot[2]};
+            apply_conn_del(va, vb, it->rot[3]);
+        }
         else {
             if (place_budget-- <= 0) break;   // rest of the batch drains on the following frames
             PlaceMsg m; m.magic=MAGIC; m.ver=1; m.kind=1; m.namelen=it->namelen;
@@ -311,7 +319,7 @@ static void drain_apply_queue() {
 static void handle_place_msg(const BYTE* buf, int c) {
     if (c < (int)sizeof(PlaceMsg)) return;
     const PlaceMsg* m = (const PlaceMsg*)buf;
-    if (m->magic != MAGIC || (m->kind < 1 || m->kind > 4)) return;
+    if (m->magic != MAGIC || (m->kind < 1 || m->kind > 5)) return;
     if ((int)(sizeof(PlaceMsg) + m->namelen) > c) return;
     enqueue_apply(m, (const char*)(buf + sizeof(PlaceMsg)));
 }
@@ -372,6 +380,19 @@ static void emit_conn(const int va[3], const int vb[3], int type) {
     if (!p_send || !g_net || !g_peerid) return;
     int rc = p_send(g_net, g_peerIdent, buf, sizeof(PlaceMsg), SEND_RELIABLE, CHANNEL);
     logline(">>> SEND conn (%d,%d,%d)-(%d,%d,%d) t=%d EResult=%d", va[0],va[1],va[2], vb[0],vb[1],vb[2], type, rc);
+    if ((rc==35 || rc==3) && p_close) { p_close(g_net, g_peerIdent); InterlockedExchange(&g_session_ok, 0); }
+}
+
+// DISCONNECT (kind=5): same wire format as kind=4, but tells the peer to REMOVE the wire.
+static void emit_disconn(const int va[3], const int vb[3], int type) {
+    BYTE buf[sizeof(PlaceMsg)]; PlaceMsg* m=(PlaceMsg*)buf; memset(buf,0,sizeof(PlaceMsg));
+    m->magic=MAGIC; m->ver=1; m->kind=5; m->namelen=0;
+    m->x=va[0]; m->y=va[1]; m->z=va[2];
+    m->rot[0]=vb[0]; m->rot[1]=vb[1]; m->rot[2]=vb[2]; m->rot[3]=type;
+    if (g_localecho) { logline(">>> LOCAL-ECHO disconn (%d,%d,%d)-(%d,%d,%d) t=%d", va[0],va[1],va[2], vb[0],vb[1],vb[2], type); handle_place_msg(buf, sizeof(PlaceMsg)); return; }
+    if (!p_send || !g_net || !g_peerid) return;
+    int rc = p_send(g_net, g_peerIdent, buf, sizeof(PlaceMsg), SEND_RELIABLE, CHANNEL);
+    logline(">>> SEND disconn (%d,%d,%d)-(%d,%d,%d) t=%d EResult=%d", va[0],va[1],va[2], vb[0],vb[1],vb[2], type, rc);
     if ((rc==35 || rc==3) && p_close) { p_close(g_net, g_peerIdent); InterlockedExchange(&g_session_ok, 0); }
 }
 
@@ -557,6 +578,30 @@ static void apply_paint(int x, int y, int z, const uint32_t inl[4], const uint32
     g_suppress=0;
     pcache_set(tx,ty,tz,inl,face,nface);   // update cache for the painted (echo) cell so the diff doesn't bounce
 }
+// ---- connection-remove (disconnect) support ----
+// DETECT is a frame-diff of the connection deque (like paint_diff): a wire present in the previous
+// scan but gone now was disconnected locally -> emit. APPLY finds the matching wire on the peer and
+// erases it via 0x8B6F00. Echo-safe: apply drops the erased wire from the snapshot (conn_prev_remove)
+// so the diff never re-broadcasts our own applied erase.
+static const int MAX_CONN = 512;
+struct ConnKey { int va[3], vb[3], type; };
+static ConnKey g_conn_prev[MAX_CONN]; static int g_nconn_prev = 0;
+static ConnKey g_conn_cur[MAX_CONN];
+static bool g_conn_diff_init = false;
+static bool conn_key_eq(const ConnKey& a, const ConnKey& b) {
+    return a.type==b.type && a.va[0]==b.va[0]&&a.va[1]==b.va[1]&&a.va[2]==b.va[2]
+                          && a.vb[0]==b.vb[0]&&a.vb[1]==b.vb[1]&&a.vb[2]==b.vb[2];
+}
+static void conn_prev_remove(const int a[3], const int b[3], int type) {
+    for (int i=0;i<g_nconn_prev;i++) {
+        ConnKey& k=g_conn_prev[i];
+        if (k.type==type && k.va[0]==a[0]&&k.va[1]==a[1]&&k.va[2]==a[2]
+                         && k.vb[0]==b[0]&&k.vb[1]==b[1]&&k.vb[2]==b[2]) {
+            g_conn_prev[i]=g_conn_prev[--g_nconn_prev]; return;
+        }
+    }
+}
+
 // apply a remote CONNECTION add: append a logic_node_link {voxelA, voxelB, type} to the peer's flat-store
 // deque at vehicle+0x50. The wire renderer iterates this deque each frame, so the wire appears. We call
 // the trampoline (not the hooked 0x8B70C0) so our own detect detour never sees it -> no re-broadcast.
@@ -579,6 +624,38 @@ static void apply_conn_add(const int va[3], const int vb[3], int type) {
         } else logline("  conn: push_back returned null");
     } __except(EXCEPTION_EXECUTE_HANDLER){ logline("  conn apply EXC 0x%lX", GetExceptionCode()); }
     g_suppress=0;
+}
+// apply a remote CONNECTION remove: scan the peer's deque for the matching {voxelA,voxelB,type} and
+// erase it at its logical index via 0x8B6F00. The wire renderer iterates the deque, so it vanishes.
+static void apply_conn_del(const int va[3], const int vb[3], int type) {
+    if (!g_armed || !g_editor) { logline("<<< recv DISCONN but not armed"); return; }
+    unsigned long long vehicle=0;
+    if (!safe_copy(&vehicle,(void*)(g_editor+0x13C8),8) || !vehicle) { logline("  disconn: no vehicle"); return; }
+    unsigned long long d=vehicle+0x50, data=0; unsigned cap=0, head=0, count=0;
+    if (!safe_copy(&data,(void*)(d+0),8)) return;
+    safe_copy(&cap,(void*)(d+8),4); safe_copy(&head,(void*)(d+0xC),4); safe_copy(&count,(void*)(d+0x10),4);
+    if (!data || !cap || !count) { logline("  disconn: empty deque"); return; }
+    int A[3]={va[0]+g_echo_dy, va[1], va[2]}, B[3]={vb[0]+g_echo_dy, vb[1], vb[2]};   // loopback shift (matches add)
+    int found=-1;
+    for (unsigned i=0;i<count;i++) {
+        unsigned slot=(head+i)%cap; unsigned long long rec=data + (unsigned long long)slot*CONN_STRIDE;
+        int ra[3]={0}, rb[3]={0}; unsigned rt=0;
+        if (!safe_copy(ra,(void*)(rec+CONN_VA),12)) continue;
+        safe_copy(rb,(void*)(rec+CONN_VB),12); safe_copy(&rt,(void*)(rec+CONN_TYPE),4);
+        if ((int)rt != type) continue;
+        bool fwd = ra[0]==A[0]&&ra[1]==A[1]&&ra[2]==A[2] && rb[0]==B[0]&&rb[1]==B[1]&&rb[2]==B[2];
+        bool rev = ra[0]==B[0]&&ra[1]==B[1]&&ra[2]==B[2] && rb[0]==A[0]&&rb[1]==A[1]&&rb[2]==A[2];
+        if (fwd||rev) { found=(int)i; break; }
+    }
+    if (found<0) { logline("  disconn: no match (%d,%d,%d)-(%d,%d,%d) t=%d", A[0],A[1],A[2], B[0],B[1],B[2], type); return; }
+    connErase_t erasefn = (connErase_t)(g_conn_erase_fn ? g_conn_erase_fn : g_base + CONN_ERASE_OFF);
+    g_suppress=1;
+    __try {
+        erasefn((void*)d, (unsigned)found);
+        logline("  <<< APPLIED DISCONN idx=%d (%d,%d,%d)-(%d,%d,%d) t=%d", found, A[0],A[1],A[2], B[0],B[1],B[2], type);
+    } __except(EXCEPTION_EXECUTE_HANDLER){ logline("  disconn apply EXC 0x%lX", GetExceptionCode()); }
+    g_suppress=0;
+    conn_prev_remove(A, B, type);   // don't let conn_diff re-broadcast this applied erase
 }
 // frame-diff the tracked cells' face colors; a change = a repaint -> emit. Runs on the MAIN thread
 // (from my_runcb) so the voxel lookups don't race the game mutating the grid. Update-before-emit so
@@ -634,6 +711,48 @@ static void drain_connection() {
     emit_conn(va, vb, (int)type);   // send it to the peer
 }
 
+// CONNECTION remove detect: frame-diff the deque on the MAIN thread. A wire in the previous scan but
+// absent now was disconnected locally -> emit. g_suppress skip so an in-flight apply doesn't get read
+// mid-mutation; applied erases are already pruned from g_conn_prev by conn_prev_remove.
+static void conn_diff() {
+    if (!g_armed || !g_editor || g_suppress) return;
+    unsigned long long vehicle=0;
+    if (!safe_copy(&vehicle,(void*)(g_editor+0x13C8),8) || !vehicle) return;
+    unsigned long long d=vehicle+0x50, data=0; unsigned cap=0, head=0, count=0;
+    if (!safe_copy(&data,(void*)(d+0),8)) return;
+    safe_copy(&cap,(void*)(d+8),4); safe_copy(&head,(void*)(d+0xC),4); safe_copy(&count,(void*)(d+0x10),4);
+    if (count > (unsigned)MAX_CONN) {   // too many wires to snapshot safely -> skip (never emit spurious removals)
+        static bool warned=false; if(!warned){ warned=true; logline("[conn] diff skipped: %u wires > cap %d (disconnect-sync off for this craft)", count, MAX_CONN); }
+        return;
+    }
+    int nc=0;
+    if (data && cap) {
+        for (unsigned i=0;i<count && nc<MAX_CONN;i++) {
+            unsigned slot=(head+i)%cap; unsigned long long rec=data + (unsigned long long)slot*CONN_STRIDE;
+            ConnKey k; memset(&k,0,sizeof k);
+            if (!safe_copy(k.va,(void*)(rec+CONN_VA),12)) continue;
+            safe_copy(k.vb,(void*)(rec+CONN_VB),12);
+            unsigned t=0; safe_copy(&t,(void*)(rec+CONN_TYPE),4); k.type=(int)t;
+            g_conn_cur[nc++]=k;
+        }
+    }
+    if (!g_conn_diff_init) {   // first scan = baseline; never emit pre-existing wires as removals
+        for (int i=0;i<nc;i++) g_conn_prev[i]=g_conn_cur[i];
+        g_nconn_prev=nc; g_conn_diff_init=true; return;
+    }
+    for (int i=0;i<g_nconn_prev;i++) {
+        bool present=false;
+        for (int j=0;j<nc;j++) if (conn_key_eq(g_conn_prev[i], g_conn_cur[j])) { present=true; break; }
+        if (!present) {
+            ConnKey& k=g_conn_prev[i];
+            logline("[conn] DEL voxelA=(%d,%d,%d) voxelB=(%d,%d,%d) type=%d", k.va[0],k.va[1],k.va[2], k.vb[0],k.vb[1],k.vb[2], k.type);
+            emit_disconn(k.va, k.vb, k.type);
+        }
+    }
+    for (int i=0;i<nc;i++) g_conn_prev[i]=g_conn_cur[i];
+    g_nconn_prev=nc;
+}
+
 // RunCallbacks IAT detour: run the game's original, then apply queued placements. Called every
 // frame on the MAIN thread, so setting editor+0x14a0 and forging is race-free.
 static unsigned g_frame=0;
@@ -641,6 +760,7 @@ static void my_runcb() {
     if (g_orig_runcb) g_orig_runcb();
     __try { drain_apply_queue(); } __except(EXCEPTION_EXECUTE_HANDLER){}
     __try { drain_connection(); } __except(EXCEPTION_EXECUTE_HANDLER){}
+    __try { conn_diff(); }        __except(EXCEPTION_EXECUTE_HANDLER){}   // detect + emit wire disconnects
     if ((++g_frame % 6)==0) __try { paint_diff(); } __except(EXCEPTION_EXECUTE_HANDLER){}   // ~10Hz repaint scan
 }
 
@@ -828,6 +948,7 @@ static bool steam_init() {
 static const unsigned char SIG_PLACE[]   = {0x48,0x89,0x5C,0x24,0x10,0x48,0x89,0x6C,0x24,0x18,0x48,0x89,0x74,0x24,0x20,0x57,0x48,0x83,0xEC,0x50,0x49,0x8B,0xE8};
 static const unsigned char SIG_ADD[]     = {0x48,0x8B,0xC4,0x4C,0x89,0x48,0x20,0x4C,0x89,0x40,0x18,0x48,0x89,0x48,0x08,0x55,0x48};
 static const unsigned char SIG_GETTMPL[] = {0x48,0x89,0x54,0x24,0x10,0x48,0x89,0x4C,0x24,0x08,0x53,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,0x48,0x83,0xEC,0x58,0x48,0x8B,0xF2};
+static const unsigned char SIG_CONN_ERASE[] = {0x48,0x89,0x5C,0x24,0x08,0x57,0x48,0x83,0xEC,0x20,0x8B,0x79,0x10,0x48,0x8B,0xD9};
 
 static unsigned char* scan_sig(unsigned char* base, size_t size, const unsigned char* pat, size_t patlen) {
     if (size < patlen) return nullptr;
@@ -944,6 +1065,7 @@ static DWORD WINAPI setup(LPVOID) {
     g_place_fn   = resolve_fn(mod, imgsz, SIG_PLACE,   sizeof(SIG_PLACE),   PLACE_OFF,   "place-cmd");
     g_add_fn     = resolve_fn(mod, imgsz, SIG_ADD,     sizeof(SIG_ADD),     ADD_OFF,     "add-detect");
     g_gettmpl_fn = resolve_fn(mod, imgsz, SIG_GETTMPL, sizeof(SIG_GETTMPL), GETTMPL_OFF, "getTemplateByName");
+    g_conn_erase_fn = resolve_fn(mod, imgsz, SIG_CONN_ERASE, sizeof(SIG_CONN_ERASE), CONN_ERASE_OFF, "conn-erase");
     g_tramp     = install_hook(g_place_fn, STEAL_PLACE, (void*)&DetourDetect, g_orig);      // arm
     g_tramp_add = install_hook(g_add_fn,   STEAL_ADD,   (void*)&DetourAdd,    g_orig_add);  // detect
     g_tramp_del = install_hook(g_base + DEL_OFF, STEAL_DEL, (void*)&DetourDel, g_orig_del); // delete detect
