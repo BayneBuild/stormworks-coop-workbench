@@ -57,7 +57,7 @@ the community has wanted for years.
 | 🩹 **Delete** | eraser tool, including fast **drag-erase**, with instant same-frame remesh |
 | 🎨 **Paint** | whole-block **and per-face** repaints |
 | 🔺 **Angled parts** | wedges, pyramids, inverse pyramids, etc. keep their correct auto-filled shape |
-| ⚡ **Connections** | **electric power wires** sync between the same two nodes |
+| ⚡ **Connections** | **electric and on/off-logic wires** sync — add *and* disconnect — between the same two nodes |
 | 🎥 **Partner overlay** | see your partner's **camera** as a marker floating in the workbench, so you know where they're working |
 | 🤝 **Zero-setup networking** | peer-to-peer by SteamID over Steam's relay — no server, no ports, no IPs; you don't even need to be in the same Stormworks session |
 | 🔄 **Auto-arm** | your first edit each session arms the sync automatically — no extra step |
@@ -89,8 +89,8 @@ It's **alpha**. Plenty is still missing or in progress:
 
 - **No late-join / full-craft sync.** Only edits made **after** the mod loads sync; blocks that already
   existed won't sync until you touch them. Both players should start from the same base.
-- **Only electric-power wires sync.** Other connection types (logic, composite, fluid, video, audio,
-  rope) and **wire disconnects** aren't synced yet.
+- **Not all wire types synced.** Electric *and* on/off-logic wires sync (including **disconnects**);
+  other connection types (number, composite, video, audio, fluid) are untested, and rope is separate.
 - **No component-property sync** — battery charge %/name, logic-constant values, and other per-part
   settings don't carry across.
 - **No microcontroller-resize sync**, and a microcontroller's internal logic isn't synced.

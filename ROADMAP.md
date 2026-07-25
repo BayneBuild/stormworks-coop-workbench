@@ -19,16 +19,15 @@ A short "I tried it in *X* and got *Y*" issue is genuinely valuable — it's how
 
 ## 🟢 Good first contributions
 
-- **Non-electric wires.** Electric power wires sync today; logic / composite / fluid / etc. very likely
-  flow through the same path already — **verify which types work** and flag any that don't. A great
-  test-plus-small-fix task.
+- **Non-electric wires.** Electric and on/off-logic wires are confirmed working; the connection path
+  looks type-agnostic, so number / composite / video / audio / fluid **very likely work too** — **verify
+  each and flag any that don't**. A great test-plus-small-fix task. (Rope is a separate system.)
 - **Docs & setup polish** — clearer steps, screenshots, a short setup clip, fixing anything confusing.
 - **Surface missing parts better** — when your partner is missing a mod/part, make it obvious in-game
   instead of only in the log.
 
 ## 🟡 Medium
 
-- **Disconnect sync** — removing a wire should sync, not just adding one.
 - **Component properties** — battery charge % / display name, logic-constant values, and other per-part
   electrical/mechanical settings.
 - **Microcontroller resize** — sync custom microcontroller footprints.
