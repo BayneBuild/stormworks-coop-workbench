@@ -22,7 +22,13 @@ WHAT IT DOES
   ports, no IP addresses, and you do NOT need to be in the same
   Stormworks multiplayer session. It's peer-to-peer by SteamID.
 
-  >> This is ALPHA. Back up your creations. See "TESTED SETUP / LIMITS" below.
+  >> v0.2.2-alpha - EXPERIMENTAL. Back up your creations. See "TESTED SETUP / LIMITS" below.
+  >> The in-game overlay shows the version; check both players are on the SAME build before testing.
+
+  >> NOT SYNCED LIVE: microcontroller internals/size and most per-part settings (sliders, logic
+     constants, names). Those only carry across on a full resync - press F7, or re-enter the bench
+     as "JOIN PARTNER". Battery charge level is the exception and does sync live.
+     So: build together live, resync after doing internals work.
 
 WHAT'S IN THIS FOLDER
   coopworkbench.dll   the mod (block/paint/delete/wire sync + partner overlay)

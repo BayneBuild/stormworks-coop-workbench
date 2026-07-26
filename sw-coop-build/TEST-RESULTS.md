@@ -186,6 +186,17 @@ since **merged into a single `coopworkbench.dll`**, same features, one inject). 
 
 ---
 
+## 2026-07-25 (night, later) — additional 2-machine confirmations  [v0.2.2-alpha]
+
+- **Works at MULTIPLE workbenches** in Custom, not only the starter bench. Combined with the coordinate
+  survey (§15), the "only tested at the starter workbench" caveat can finally come off.
+- **Works while both players are in a shared Stormworks multiplayer session** — as well as the already-known
+  case of being in completely separate saves (the sync never touches the game's own networking).
+- **Partner camera AND cursor markers confirmed cross-machine.** The cursor had only ever been validated
+  solo via the F8 self-echo, so this is its first real two-machine confirmation — and it also validates the
+  floating-origin fix (§18) at a bench far from the world origin.
+- **552 KB / 4783-node craft** transfers and rebuilds correctly (post chunking fix).
+
 ## 2026-07-25 (night) — 2-MACHINE: session model works; two transfer bugs found + fixed
 
 With ThePwnageKitty. First cross-machine run of the v0.2.x session model.

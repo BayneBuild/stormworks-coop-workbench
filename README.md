@@ -79,12 +79,16 @@ What's actually been tested, and what hasn't:
 - The full feature table above held up in a live two-machine session.
 
 **✅ Also confirmed since:**
-- **Workbench coordinates are bench-independent.** Measured at four different benches: the first block
-  always lands at voxel `(0,0,0)`, and the origin is the **centre** of the build volume. So the coordinate
-  frame doesn't change with the bench or where it sits in the world — the earlier worry about world seeds
-  affecting placement was unfounded.
+- **Multiple different workbenches**, not just the starter one.
+- **While both players are in a shared Stormworks multiplayer session.** (It also works when you're in
+  completely separate saves — the sync doesn't go through the game's networking at all.)
+- **Partner camera and cursor markers**, seen across two machines.
+- **Workbench coordinates are bench-independent.** Measured at four benches: the first block always lands
+  at voxel `(0,0,0)`, and the origin is the **centre** of the build volume. The earlier worry about world
+  seeds affecting placement was unfounded.
 - **Bench build volumes differ, and that does matter** — starter is 30×30×60 voxels (±13/±13/±28 reach),
-  larger benches 146×40×140. The mod now compares them and refuses to sync a mismatch.
+  larger benches 146×40×140. The mod compares them and refuses to sync a mismatch.
+- **Large crafts** — a 552 KB craft (4,783 render chunks) transfers and rebuilds correctly.
 
 **❓ Not yet verified — help wanted:**
 - **Career / survival gamemodes** — everything so far has been Custom.

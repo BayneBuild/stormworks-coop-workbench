@@ -1,5 +1,5 @@
 ======================================================================
-  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench  v0.2.0 EXPERIMENTAL
+  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench  v0.2.2-alpha  EXPERIMENTAL
 ======================================================================
 
 >>> READ THIS FIRST (v0.2.0) <<<
