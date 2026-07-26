@@ -1,5 +1,7 @@
 <!-- Banner -->
-![Coop Workbench — Multiplayer Building Mod for Stormworks](docs/banner.jpg)
+![The Stormworks workbench prompt showing "Create Vehicle — [E] CO-OP / [Q] SOLO", added by the mod](docs/workbench-coop-prompt.png)
+
+*The mod running in-game: the workbench itself offers co-op.*
 
 # Coop Workbench
 
