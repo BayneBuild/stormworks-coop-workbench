@@ -1,80 +1,135 @@
 ======================================================================
-  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench
+  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench  v0.2.0 EXPERIMENTAL
 ======================================================================
-Goal: confirm every synced feature works between two real machines (A and B)
-over Steam P2P. Run through it once A->B, then swap and run B->A.
+
+>>> READ THIS FIRST (v0.2.0) <<<
+ 1. BOTH players must use the SAME WORKBENCH TYPE. Bench sizes differ (the starter bench is 30x30x60
+    voxels, some are 146x40x140) and a block that fits one does not fit the other. If they differ the mod
+    now BLOCKS sync on purpose and the overlay shows "!! WRONG BENCH - SYNC BLOCKED".
+ 2. OPEN THE BENCH WITH  E  (CO-OP). Pressing Q opens it in SOLO and nothing will sync - that is deliberate.
+    The prompt tells you which you are about to do:
+        [E] START CO-OP    = you are first in, YOUR craft is the source of truth
+        [E] JOIN PARTNER   = they were already building, so joining PULLS their whole craft over yours
+ 3. Set coop-peer.txt manually on both machines (exchange SteamID64s). AUTO-CONNECT DOES NOT WORK YET -
+    it is off by default; ignore it for this test.
+ 4. Both machines must run the SAME build. The overlay header shows the version -
+    "COOP WORKBENCH by BAYNEBUILD  v0.2.0  EXPERIMENTAL". Check they match before starting.
+ 5. If anything looks wrong, grab coopworkbench-log.txt (and wsdraw-log.txt) from BOTH sides. Remove the
+    17-digit SteamID64s before sharing.
+
+NEW IN v0.2.0 - worth testing specifically:
+ [ ] Just OPENING the bench arms the mod (no "place a block first" step any more).
+ [ ] E vs Q chooses co-op vs solo; the prompt text changes to START CO-OP / JOIN PARTNER as your partner
+     enters their bench.
+ [ ] JOINING (partner already in the bench) automatically pulls their whole craft, with a centre-screen
+     "SYNCING WITH PARTNER" progress banner. Any failure shows a red "SYNC FAILED" with the reason.
+ [ ] Leave the bench and come back while your partner keeps building - you should re-sync, not desync.
+ [ ] Your partner's camera marker only shows while they are IN the bench (walking around, it disappears).
+ [ ] PARTNER CURSOR - an orange box on the exact cell your partner is hovering, matching their camera
+     colour. Move your mouse around the craft and have them confirm the box follows it, on the right cell.
+     (Do NOT press F8 during this test - that is a solo self-test mode which overwrites the partner's
+     cursor with a delayed copy of your own.)
+
+======================================================================
+Two players (A and B) build the same craft live over Steam. This build adds
+two big things since last time:
+
+  * AUTO-ARM  - you no longer place a block to "wake up" the mod. Just being
+                in the vehicle workbench arms it automatically.
+  * F7 PULL   - "load partner's craft": press F7 and YOUR craft is replaced
+                with whatever your partner currently has on screen (their
+                whole build - blocks, colours, wires, microcontrollers,
+                properties). Only YOUR side changes; your partner is never
+                overwritten.
+
+KEYS (in the workbench):
+  F7  load partner's craft (pull)      F6  hide/show the on-screen menu
+  F5  save your craft to a file        F9  overlay on/off
+  F4  load that saved file             F10 overlay calibration readouts
 
 ----------------------------------------------------------------------
 0. PREP (both machines)
 ----------------------------------------------------------------------
-[ ] Both on Steam (logged in) with Stormworks running, same base game +
-    the SAME mods installed.
-[ ] Both have this folder (coopworkbench.dll + the scripts).
-[ ] Exchange SteamID64s (inject.bat prints yours).
+[ ] Both on Steam, Stormworks running, SAME base game + SAME mods installed.
+[ ] Both extracted this whole folder (coopworkbench.dll + the scripts) to e.g.
+    the Desktop (do NOT run from inside the .zip).
+[ ] Tested only in CUSTOM gamemode at the starter workbench so far. Please use
+    that (Custom -> the default starter workbench) for this test.
 
 ----------------------------------------------------------------------
 1. CONNECT
 ----------------------------------------------------------------------
-[ ] Both: open the vehicle workbench, empty craft.
-[ ] Both: place ONE block at the SAME origin spot (so coordinates line up).
-[ ] Both: run inject.bat, paste the partner's SteamID64.
-[ ] Both: check coopworkbench-log.txt shows your 'our=' id + the partner id,
-    and within a few seconds '*** SESSION ACCEPTED ***' or '*** LINK LIVE ***',
-    plus 'net: *** peer camera link LIVE ***' once the partner is in the bench.
-[ ] Both: your FIRST edit auto-arms the apply path (log shows either
-    'ARMED (single-click)' or 'AUTO-ARMED (click-drag, no single-click)').
-    No separate arm step is needed.
+[ ] Both: open the vehicle workbench (an empty starter craft is fine).
+[ ] Both: run inject.bat. It prints YOUR SteamID64 - exchange them.
+[ ] Both: paste the PARTNER's SteamID64 when asked (each other's, not your own).
+[ ] Both: check coopworkbench-log.txt shows within a few seconds:
+      '*** SESSION ACCEPTED ***' or '*** LINK LIVE ***'
+      'AUTO-ARMED (passive, bench open)'   <- arms by itself, no block needed
+      'net: *** peer camera link LIVE ***' once the partner is in the bench.
 
-If the link never goes live: confirm both SteamIDs are correct (each other's,
-not your own), Steam is running, and neither is blocked by a firewall.
+If the link never goes live: re-check both SteamIDs, that Steam is running, and
+that neither is blocked by a firewall.
 
 ----------------------------------------------------------------------
-2. FEATURE TESTS  (do the action on A, verify on B)
+2. LIVE EDIT TESTS  (do the action on A, verify it appears on B)
 ----------------------------------------------------------------------
-[ ] SINGLE PLACE   A places one block  -> appears on B, same spot.
-[ ] DRAG PLACE     A drags a line (~10) -> whole line appears on B.
-[ ] AREA FILL      A drags a big area (30-50) -> all appear on B, none missing.
-                   (log on B: many '<<< APPLIED', no 'apply EXCEPTION'.)
-[ ] WEDGE BEAM     A drags a beam of wedges -> B shows a CLEAN solid beam
-                   (no sawtooth / no flipped top row). Try pyramids too.
-[ ] ROTATION       A places a rotated block -> B matches the orientation.
-[ ] DELETE         A erases a block (eraser tool) -> removed on B instantly.
-[ ] PAINT WHOLE    A paints a whole block -> B shows the new color.
-[ ] PAINT FACE     A paints ONE face -> B recolors that SAME face only.
-[ ] CONNECTION     A connects two electric-power nodes with a wire
-                   -> the wire appears on B between the same two nodes.
-                   (Electric power first; other wire types still coming.)
+[ ] SINGLE PLACE   A places one block            -> appears on B.
+[ ] DRAG / AREA    A drags a line, then a big fill -> all appear on B, none missing.
+[ ] SHAPES         A drags a beam of wedges / a pyramid -> B shows it clean
+                   (no sawtooth, no flipped rows).
+[ ] ROTATION       A places a rotated block       -> B matches the orientation.
+[ ] DELETE         A erases a block (eraser)       -> removed on B instantly.
+[ ] PAINT WHOLE    A paints a whole block          -> B shows the new colour.
+[ ] PAINT FACE     A paints ONE face               -> B recolours that same face only.
+[ ] CONNECT        A wires two nodes (electric power, and a logic on/off)
+                   -> the wire appears on B; spawn it in and confirm it powers.
+[ ] DISCONNECT     A removes a wire                -> it disappears on B.
+[ ] BATTERY %      A sets a battery's charge slider -> B's battery charge matches.
+
+Note: a remote block PLACE needs the placer to have made ONE local placement
+first (to capture the block template). Everything else above - delete, paint,
+wires, battery %, and the F7 pull - works the instant you're in the bench.
 
 ----------------------------------------------------------------------
-2b. OVERLAY  (the partner-camera marker)
+3. FULL-CRAFT PULL  (the headline - F7)
 ----------------------------------------------------------------------
-[ ] Both in the workbench with the craft on screen.
-[ ] A: move/orbit your camera. On B, a cyan "PARTNER" frustum should move to
-    match where A is looking (and vice-versa). It has a drop-line to the
-    ground and an "up" spike.
-[ ] F9 shows/hides the overlay; F10 shows/hides the top-left calibration
-    readouts. Default: overlay on, readouts hidden.
-[ ] If no PARTNER marker appears, the peer packet isn't arriving - check
-    coopworkbench-log.txt (and wsdraw-log.txt) for 'peer camera link LIVE'
-    and that coop-peer.txt matches your partner's id.
-[ ] The overlay never blocks building - block sync must keep working
-    regardless of whether the marker shows.
+[ ] B builds something distinctive (a few blocks; ideally include a
+    microcontroller and a battery so we can check those transfer).
+[ ] A presses F7.  ->  A's craft is REPLACED with B's craft, rendered instantly.
+    Log on A: '[pull] <<< chunk ... (n/total)' then
+              '[snap] load+render DONE: N body(s), M node(s) remeshed'.
+    Log on B: '[pull] <<< peer requested our craft' then '[pull] craft sent'.
+[ ] Check on A: the pulled craft matches B's - blocks, colours, wires, and (if
+    present) the microcontroller's internals + the battery's charge/name.
+[ ] Swap: B presses F7 and gets A's craft.
+
+This is a REPLACE, so press F7 when you actually want your partner's build (it
+overwrites your current one on your side only).
 
 ----------------------------------------------------------------------
-3. REVERSE + CONCURRENT
+4. OVERLAY  (partner-camera marker)
 ----------------------------------------------------------------------
-[ ] Repeat sections 2 + 2b with B acting and A verifying.
-[ ] Both build at once for a minute -> edits from both sides land, nothing
-    is lost, both partner-camera markers track, and neither game crashes.
+[ ] Both in the workbench. A moves/orbits the camera -> on B a cyan "PARTNER"
+    frustum tracks where A is looking (and vice-versa).
+[ ] F9 hides/shows the overlay; F6 hides/shows the top-left status menu.
+[ ] The overlay never blocks building - sync must keep working regardless.
 
 ----------------------------------------------------------------------
-IF SOMETHING FAILS
+5. IF SOMETHING FAILS  (this is the most useful part!)
 ----------------------------------------------------------------------
-Grab coopworkbench-log.txt from BOTH machines at the moment it failed and note
-which step. REMOVE the SteamID64s before sharing. Useful markers:
-  >>> SEND ...        an edit left your machine
-  <<< APPLIED ...     an edit was applied on the receiver
-  NOT ARMED           rare now: an edit arrived just before the first placement armed
-  UNKNOWN def '...'   the receiver is missing that mod/part
-  apply EXCEPTION     a placement failed (includes the voxel + part name)
+Please grab coopworkbench-log.txt from BOTH machines at the moment it failed and
+note which step. REMOVE the SteamID64s from the log before sharing (find/replace
+the 17-digit numbers). A wsdraw-log.txt may also be present - send both if so.
+
+Useful log markers:
+  >>> SEND / <<< APPLIED     an edit left / arrived
+  [pull] >>> / [pull] <<<    craft chunks sent / received
+  [snap] load+render DONE    a pulled craft rebuilt successfully
+  AUTO-ARMED (passive...)    the mod armed on its own
+  no forge template yet      a remote place before the placer's first placement
+  UNKNOWN def '...'          the receiver is missing that mod/part
+  ... EXC / EXCEPTION        something faulted (includes context)
+
+Thanks for testing - this is my first mod and first public project, and real
+two-machine feedback is what moves it forward. Both sides' logs are gold.
 ======================================================================

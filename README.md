@@ -55,31 +55,42 @@ the community has wanted for years.
 
 | Feature | Details |
 |---|---|
-| 🧱 **Placement** | single-click, click-**drag**, and big **area fills** — with type, position, rotation, and color |
-| 🩹 **Delete** | eraser tool, including fast **drag-erase**, with instant same-frame remesh |
-| 🎨 **Paint** | whole-block **and per-face** repaints |
-| 🔺 **Angled parts** | wedges, pyramids, inverse pyramids, etc. keep their correct auto-filled shape |
-| ⚡ **Connections** | **electric and on/off-logic wires** sync — add *and* disconnect — between the same two nodes |
-| 🎥 **Partner overlay** | see your partner's **camera** as a marker floating in the workbench, so you know where they're working |
-| 🤝 **Zero-setup networking** | peer-to-peer by SteamID over Steam's relay — no server, no ports, no IPs; you don't even need to be in the same Stormworks session |
-| 🔄 **Auto-arm** | your first edit each session arms the sync automatically — no extra step |
-| 🛡️ **Patch-resilient** | every hooked function is found by a signature scan at startup, so game updates are less likely to break it |
+| Placement | single-click, click-drag, and big area fills, with type, position, rotation and colour |
+| Delete | eraser tool including fast drag-erase, remeshed the same frame |
+| Paint | whole-block and per-face repaints |
+| Angled parts | wedges, pyramids, inverse pyramids etc. keep their correct auto-filled shape |
+| Connections | electric and on/off-logic wires, add *and* disconnect |
+| Battery charge | charge level syncs live |
+| Whole-craft sync | pull your partner's entire craft over Steam — blocks, colours, wires, microcontrollers, part settings — in one go. Used for joining, catching up, or fixing a desync |
+| Co-op or solo entry | the workbench prompt becomes `[E] START CO-OP` / `[Q] SOLO`, and changes to `[E] JOIN PARTNER` once your partner is building. Whoever gets in first is the source of truth; joining pulls their craft |
+| Partner overlay | their camera, and the exact cell they're hovering, drawn in the world — only while they're actually in the bench |
+| Bench matching | build volumes are compared and a mismatch is refused up front, rather than half-syncing and leaving you both confused |
+| Networking | peer-to-peer by SteamID over Steam's relay. No server, no ports, no IPs, and you don't need to be in the same Stormworks session |
+| Auto-arm | opening the workbench is enough; there's no separate step |
+| Patch resilience | hooked functions are found by signature scan at startup, so game updates are less likely to break it |
 
 ## Tested / not tested
 
-Being honest about coverage matters more than hype, so:
+What's actually been tested, and what hasn't:
 
 **✅ Tested and working** (on two real machines over Steam):
 - **Custom gamemode**, at the **starter vehicle workbench**, with **both players starting from an
   empty craft and placing their first block at the same origin spot.**
 - The full feature table above held up in a live two-machine session.
 
+**✅ Also confirmed since:**
+- **Workbench coordinates are bench-independent.** Measured at four different benches: the first block
+  always lands at voxel `(0,0,0)`, and the origin is the **centre** of the build volume. So the coordinate
+  frame doesn't change with the bench or where it sits in the world — the earlier worry about world seeds
+  affecting placement was unfounded.
+- **Bench build volumes differ, and that does matter** — starter is 30×30×60 voxels (±13/±13/±28 reach),
+  larger benches 146×40×140. The mod now compares them and refuses to sync a mismatch.
+
 **❓ Not yet verified — help wanted:**
-- **Other workbenches** (larger benches, career/survival benches) — untested.
-- **World seeds / workbench position in the world.** The sync uses **body-relative voxel
-  coordinates**, which *should* be independent of the world seed and where the bench sits — but this
-  is **unconfirmed**, and we don't yet know how different benches set the craft origin. If your blocks
-  land in the wrong place, this is the likely reason.
+- **Career / survival gamemodes** — everything so far has been Custom.
+- **Different world seeds and starting islands** — expected to be irrelevant now that coordinates are known
+  to be bench-independent, but not directly tested.
+- **More than two players.**
 
 If you try it somewhere new, [**opening an issue**](../../issues) with your result — and, if something
 broke, **both players' `coopworkbench-log.txt`** (with SteamIDs removed) — is the single most useful
@@ -89,14 +100,37 @@ thing you can contribute right now.
 
 It's **alpha**. Plenty is still missing or in progress:
 
-- **No late-join / full-craft sync.** Only edits made **after** the mod loads sync; blocks that already
-  existed won't sync until you touch them. Both players should start from the same base.
-- **Not all wire types synced.** Electric *and* on/off-logic wires sync (including **disconnects**);
-  other connection types (number, composite, video, audio, fluid) are untested, and rope is separate.
-- **No component-property sync** — battery charge %/name, logic-constant values, and other per-part
-  settings don't carry across.
-- **No microcontroller-resize sync**, and a microcontroller's internal logic isn't synced.
-- **No undo/redo, symmetry-mode, or multi-body sync**, and it's **two players** only for now.
+### ⚠️ The big one: component settings and microcontrollers need a **resync**
+
+Live sync covers **geometry** — placing, deleting, painting, rotating, wiring. It does **not** cover most
+**per-component internal settings**:
+
+- **Microcontrollers** — their internal logic and custom size
+- **Part settings** — sliders, logic-constant values, names, seat/display configuration
+- (Battery **charge level** is the exception — that one does sync live.)
+
+Change a microcontroller's internals and **your partner will not see it happen.** They carry across only
+when someone does a **full-craft resync** — press **F7**, or re-enter the bench as `JOIN PARTNER` — which
+pulls the partner's whole craft, settings and all.
+
+So the working pattern today is: **build together live, and resync after doing internals work.** Making
+those changes stream live is the single biggest item on the roadmap.
+
+### Other known limitations
+
+- **Both players must use the same workbench type.** Bench build volumes differ (the starter bench is
+  30×30×60 voxels; some are 146×40×140), so a block that fits one won't fit the other. Mismatches are
+  detected and sync is **blocked on purpose**, with a warning in the overlay.
+- **No auto-connect yet.** You still exchange SteamID64s by hand (`coop-peer.txt`). Automatic partner
+  discovery is in progress.
+- **Stuck warning markers.** Yellow warning icons can pile up on screen during a session, pinned to the
+  screen rather than the world. They're **cosmetic** — quitting to the menu clears them — and it isn't yet
+  confirmed whether they're caused by the mod at all.
+- **One crash seen when copying a part** on a freshly pulled craft. A fix is in, but it hasn't been
+  reproduced or confirmed since — [report it](../../issues) if you hit it.
+- **Not all wire types verified.** Electric *and* on/off-logic wires sync (including **disconnects**);
+  number, composite, video, audio and fluid are untested, and rope is a separate system.
+- **No undo/redo sync**, and it's **two players** only for now. (Symmetry-mode placement does work.)
 - **Concurrent edits to the same voxel** resolve last-writer-wins — there's no smart merge yet.
 - **Missing parts are skipped.** If your partner places a modded part you don't have installed, it's
   logged and skipped, not placed.
@@ -107,12 +141,15 @@ All of this is on the [roadmap](ROADMAP.md) — help is very welcome.
 
 ## Quick start
 
-1. Both players: install Steam + Stormworks, launch the game, and open the **vehicle workbench**.
-2. **Start from the same base:** easiest is both start with an empty craft and each place **one block
-   at the same spot** (e.g. the origin) so coordinates line up.
-3. Grab the [latest release](../../releases), unzip it, and both run **`inject-both.bat`**. It prints
-   *your* SteamID64 and asks for your *partner's* — paste it in.
-4. Start building. Your first edit auto-arms the sync; you'll see each other's edits live.
+1. Both players: install Steam + Stormworks and launch the game.
+2. Grab the [latest release](../../releases), unzip it, and both run **`inject.bat`**. It prints *your*
+   SteamID64 and asks for your *partner's* — paste it in.
+3. Both walk up to a workbench — **the same type on both machines** (easiest: the starter bench) — and
+   open it with **`E`** for co-op. `Q` opens it solo, syncing nothing.
+4. Start building. Whoever entered first is the source of truth; if your partner is already in there, your
+   prompt says **`JOIN PARTNER`** and entering pulls their craft across automatically.
+5. After anyone edits **microcontroller internals or part settings**, press **F7** to resync — those don't
+   stream live yet (see [limitations](#️-the-big-one-component-settings-and-microcontrollers-need-a-resync)).
 
 Full step-by-step + a feature-by-feature checklist:
 [`coop-package/README.txt`](sw-coop-build/coop-package/README.txt) and

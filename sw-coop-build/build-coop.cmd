@@ -16,6 +16,10 @@ ml64 /nologo /c /Fo hook_dll\detour_factory.obj hook_dll\detour_factory.asm
 if errorlevel 1 ( echo [build] ASM6 FAILED & exit /b 1 )
 ml64 /nologo /c /Fo hook_dll\detour_conn_add.obj hook_dll\detour_conn_add.asm
 if errorlevel 1 ( echo [build] ASM7 FAILED & exit /b 1 )
-cl /nologo /LD /EHa /O2 /Fe:coopworkbench.dll hook_dll\coop.cpp hook_dll\wsdraw.cpp hook_dll\detour_detect.obj hook_dll\detour_add.obj hook_dll\detour_del.obj hook_dll\detour_delarm.obj hook_dll\detour_dragarm.obj hook_dll\detour_factory.obj hook_dll\detour_conn_add.obj
+ml64 /nologo /c /Fo hook_dll\detour_appstate.obj hook_dll\detour_appstate.asm
+if errorlevel 1 ( echo [build] ASM8 FAILED & exit /b 1 )
+ml64 /nologo /c /Fo hook_dll\detour_interact.obj hook_dll\detour_interact.asm
+if errorlevel 1 ( echo [build] ASM9 FAILED & exit /b 1 )
+cl /nologo /LD /EHa /O2 /Fe:coopworkbench.dll hook_dll\coop.cpp hook_dll\wsdraw.cpp hook_dll\detour_detect.obj hook_dll\detour_add.obj hook_dll\detour_del.obj hook_dll\detour_delarm.obj hook_dll\detour_dragarm.obj hook_dll\detour_factory.obj hook_dll\detour_conn_add.obj hook_dll\detour_appstate.obj hook_dll\detour_interact.obj
 if errorlevel 1 ( echo [build] COMPILE FAILED & exit /b 1 )
 echo [build] OK

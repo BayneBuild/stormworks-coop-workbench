@@ -9,8 +9,12 @@ WHAT IT DOES
     - angled parts (wedges, pyramids, etc.) keep their correct shape
     - delete (eraser tool)
     - paint - whole block AND individual faces
-    - electric power wires
-    - rotation + color carried across
+    - connect AND disconnect wires (electric power + logic on/off)
+    - battery charge level
+    - rotation + colour carried across
+  Plus "LOAD PARTNER'S CRAFT" (press F7): instantly pull your partner's WHOLE
+  build onto your screen - blocks, colours, wires, microcontrollers and part
+  settings, the entire craft in one shot. Only your side changes.
   It also draws your partner's CAMERA as a marker floating in the workbench,
   so you can see where they're working.
 
@@ -38,16 +42,20 @@ SETUP  (do this on BOTH computers)
        - it shows YOUR SteamID64  (send it to your partner)
        - it asks for your PARTNER's SteamID64  (paste it, press Enter)
        - it loads the mod and connects.
-  4. In the workbench, just start building - your first edit (a click OR a
-     drag) automatically arms the sync. You'll see each other's edits live,
-     and your partner's camera as a cyan "PARTNER" marker in the world.
+  4. That's it - just being in the workbench arms the sync automatically (no
+     "first edit" needed). You'll see each other's edits live, your partner's
+     camera as a cyan "PARTNER" marker, and you can press F7 any time to pull
+     their whole craft onto your screen.
 
   You each need the OTHER person's SteamID64. The tool prints yours;
   or find it at steamid.io, or read 'our=...' in coopworkbench-log.txt.
 
 IN-GAME KEYS
+  F7   LOAD PARTNER'S CRAFT (pull their whole build onto your screen)
+  F6   show / hide the top-left status menu
   F9   show / hide the overlay (the partner-camera marker)
-  F10  show / hide the calibration readouts in the top-left
+  F10  show / hide the calibration readouts
+  F5 / F4  save / load your craft to a local file (dev/test)
 
 TESTED SETUP / LIMITS
   - TESTED SETUP (important): so far this is only confirmed in CUSTOM
@@ -56,15 +64,19 @@ TESTED SETUP / LIMITS
     spot. Other workbenches, career/survival, and different world seeds are
     UNTESTED - the voxel coordinates may not line up there yet. If blocks
     appear in the wrong place, that mismatch is the most likely cause.
-  - Arming is automatic: your first placement each session (single-click OR
-    drag) arms the sync. No special step needed.
+  - Arming is automatic: just opening the workbench arms the sync (no first
+    placement needed). One exception: to have your BLOCK PLACEMENTS sync, make
+    one local placement first (it captures the block template) - delete, paint,
+    wires, battery %, and the F7 pull all work with no placement at all.
   - Both machines need the SAME block set (base game + same mods). An
     unknown part from your partner is skipped (logged, not placed).
-  - Only edits made AFTER the mod loads sync. A block that already existed
-    before injecting won't repaint/delete-sync until it's touched.
-    (Full late-join craft sync is coming.)
-  - Electric power wires sync; other connection types, wire disconnects,
-    and component properties (battery charge/name, etc.) are still coming.
+  - Live edits sync only AFTER the mod loads. To grab a build that already
+    existed, or to catch up after joining late, press F7 to pull your
+    partner's whole craft.
+  - Electric power AND logic on/off wires sync, including DISCONNECTS, plus
+    battery charge level. Other wire types, more part properties, and
+    microcontroller INTERNAL logic over the live path are still coming - but
+    the F7 pull already transfers all of those at once.
   - Windows Defender / antivirus may warn about the injector (it uses
     LoadLibrary injection). It only loads coopworkbench.dll into Stormworks.
 
