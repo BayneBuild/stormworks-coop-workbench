@@ -69,9 +69,9 @@ WHAT'S IN THIS FOLDER
   install.bat / install.ps1       *** RUN THIS *** installs the mod
   uninstall.bat / uninstall.ps1   removes it, and nothing else
   coopworkbench.asi               the mod itself
+  LICENSE-Ultimate-ASI-Loader.txt licence for the bundled loader (MIT)
   dinput8.dll                     Ultimate-ASI-Loader (MIT, third party) -
                                   the standard loader that starts .asi plugins
-  TESTING.txt                     two-machine test checklist
 
   Nothing is patched. Both files are additive; uninstalling leaves the game
   exactly as it was.

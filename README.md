@@ -197,9 +197,7 @@ and only, what `install.bat` does. To uninstall either way, delete those two fil
 Three optional files, created by you next to the mod, change behaviour: `coop-peer.txt` (a partner's
 SteamID64, to pair manually instead of automatically), `coop-autoconnect-off.txt`, and `coop-noprops.txt`.
 
-Full step-by-step + a feature-by-feature checklist:
-[`coop-package/README.txt`](sw-coop-build/coop-package/README.txt) and
-[`coop-package/TESTING.txt`](sw-coop-build/coop-package/TESTING.txt).
+Full step-by-step: [`coop-package/README.txt`](sw-coop-build/coop-package/README.txt).
 
 ## Build from source
 
