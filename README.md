@@ -76,7 +76,9 @@ What's actually been tested, and what hasn't:
 **✅ Tested and working** (on two real machines over Steam):
 - **Custom gamemode**, at the **starter vehicle workbench**, with **both players starting from an
   empty craft and placing their first block at the same origin spot.**
-- The full feature table above held up in a live two-machine session.
+- Everything in the feature table above **except bench matching** held up in a live two-machine session.
+  Bench matching and component-settings sync were both written afterwards and have never run between two
+  machines.
 
 **✅ Also confirmed since:**
 - **Multiple different workbenches**, not just the starter one.
@@ -87,7 +89,9 @@ What's actually been tested, and what hasn't:
   at voxel `(0,0,0)`, and the origin is the **centre** of the build volume. The earlier worry about world
   seeds affecting placement was unfounded.
 - **Bench build volumes differ, and that does matter** — starter is 30×30×60 voxels (±13/±13/±28 reach),
-  larger benches 146×40×140. The mod compares them and refuses to sync a mismatch.
+  larger benches 146×40×140. Two *matching* benches were confirmed to pair correctly across two machines.
+  The code that **refuses** a mismatch has never actually been exercised between two machines, so don't
+  lean on it — agree with your partner which bench you're both using.
 - **Large crafts** — a 552 KB craft (4,783 render chunks) transfers and rebuilds correctly.
 
 **❓ Not yet verified — help wanted:**
