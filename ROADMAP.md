@@ -8,8 +8,9 @@ If you want to take something on, **open an issue** so we don't double up, and s
 
 ## 🧪 Start here — test reports (no code needed)
 
-The mod is only confirmed in **Custom gamemode, starter workbench, both players empty from the same
-origin block.** The single most useful thing you can do is try it somewhere else and report back:
+Confirmed in **Custom gamemode**, across **multiple workbench types**, with either player joining an
+existing craft — workbench coordinates turned out to be bench-independent, and a 552 KB craft has moved
+between machines intact. **Career and Survival are still unverified.** The single most useful thing you can do is try it somewhere else and report back:
 
 - Career / survival benches, larger workbenches — does it still line up?
 - Different **world seeds** and workbench positions — do coordinates still match?
@@ -28,16 +29,19 @@ A short "I tried it in *X* and got *Y*" issue is genuinely valuable — it's how
 
 ## 🟡 Medium
 
-- **Component properties** — battery charge % / display name, logic-constant values, and other per-part
-  electrical/mechanical settings.
+- ~~**Component properties**~~ — **SHIPPED in v0.5.0-alpha**, solo-tested only. Sliders, names, logic
+  constants and microcontroller internals stream live.
+- **Two severe open bugs**, both new and both documented in the README: a partner's microcontroller arrives
+  carrying *yours*, and an `F7` pull can land the craft offset (root cause found, fix unconfirmed).
+- ~~**Zero-friction install**~~ — **SHIPPED.** `install.bat` or two files by hand; the mod loads with the
+  game. Automatic partner pairing over Steam friends, no SteamIDs to exchange.
 - **Microcontroller resize** — sync custom microcontroller footprints.
 - **Overlay polish** — live peer cursors in each player's color, and a small sync-status HUD.
 
 ## 🔴 Bigger pieces
 
-- **Full-craft snapshot / late-join** — serialize the whole craft and load it on the other side, so a
-  player can join mid-build and pre-existing blocks sync. This is also the universal "heal any desync"
-  primitive.
+- ~~**Full-craft snapshot / late-join**~~ — **SHIPPED.** `F7`, and automatic on `JOIN PARTNER`. Also the
+  universal "heal any desync" primitive.
 - **Consistency core** — a periodic hash to detect drift plus automatic re-sync, and per-voxel
   last-writer-wins so two people editing at once never corrupt the craft.
 - **More than two players.**

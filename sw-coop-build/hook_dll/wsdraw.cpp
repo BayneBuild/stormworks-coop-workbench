@@ -45,8 +45,21 @@ static PFN_glUseProgram       p_glUseProgram = nullptr;
 static PFN_glBindVertexArray  p_glBindVertexArray = nullptr;
 static void**  g_slot = nullptr;
 static volatile LONG g_inhook = 0, g_stop = 0, g_visible = 1, g_want_exit = 0, g_gl_freed = 0;
+// The F6 panel is now OFF by default. It was permanently on screen, which is fine while
+// debugging and clutter for a player - the boot sequence says how to bring it up instead.
+// Camera-matrix hook unavailable. Costs the partner CAMERA marker only - the menu, sync banner and
+// partner cursor do not need the view matrix and must keep drawing.
+static bool g_um4_gave_up = false;
 static unsigned g_frames = 0;
 static bool g_ready = false, g_font_ready = false;
+extern "C" volatile long g_selftest_on;   // defined in coop.cpp - local-echo is active
+static char  g_toast[96] = {0};
+static DWORD g_toast_at = 0;
+extern "C" __declspec(dllexport) void wsdraw_toast(const char* text) {
+    if (!text) return;
+    strncpy_s(g_toast, sizeof g_toast, text, _TRUNCATE);
+    g_toast_at = GetTickCount();
+}
 static GLuint g_font_base = 0; static const int FONT_H = 15;
 
 static void logline(const char* fmt, ...) {
@@ -70,7 +83,15 @@ static bool  g_off_dirty = false;    // set on nudge; stops the file reload clob
 static int   g_grid = 1;             // draw the labelled world ground grid
 static float g_gridext = 40.0f;      // half-extent of that grid, metres
 static volatile LONG g_hud = 0;      // F10 toggles the top-left calibration/status readouts (off by default)
-static volatile LONG g_menu = 1;     // F6 toggles the coop status menu (VISIBLE by default)
+static volatile LONG g_menu = 0;     // F6 toggles the coop status menu. OFF by default: it used to sit
+                                     // on screen permanently, which suits debugging and not playing.
+                                     // The boot sequence tells the player how to open it.
+// The F6 status panel's geometry, at file scope so the log viewer can sit UNDER it rather than over it.
+// Duplicating these numbers in two places is exactly how two panels end up overlapping after someone edits
+// one of them, so there is a single definition.
+static const int MENU_X = 8, MENU_Y = 8, MENU_ROW = 18, MENU_W = 560;
+static const int MENU_H = 6*MENU_ROW + 12;
+
 static DWORD g_cfg_last = 0;
 
 static void load_cfg() {
@@ -363,57 +384,652 @@ static void draw_voxel_box(int vx, int vy, int vz, float r, float g, float b) {
 // GL_PIXEL_UNPACK_BUFFER will do it) silently produced blank glyphs. Quads depend on no
 // pixel state whatsoever, and they scale - which world-space name tags will want.
 //
-// Each glyph is 5 rows of 3 bits packed into a u16: bit (row*3 + col), col 0 = leftmost.
-#define G(r0,r1,r2,r3,r4) ((unsigned short)((r0)|((r1)<<3)|((r2)<<6)|((r3)<<9)|((r4)<<12)))
-static const unsigned short FONT_DIGIT[10] = {
-    G(7,5,5,5,7), G(2,3,2,2,7), G(7,4,7,1,7), G(7,4,7,4,7), G(5,5,7,4,4),
-    G(7,1,7,4,7), G(7,1,7,5,7), G(7,4,4,4,4), G(7,5,7,5,7), G(7,5,7,4,7),
+// A 5x7 font. The overlay ran on a 3x5 one - three pixels of glyph width scaled up 2-3x is a blocky
+// letterform that no amount of smoothing can rescue, and it is why every panel read as pixel art.
+// 5x7 is the classic readable minimum and nearly triples the resolution for the same cost: still one
+// quad per set pixel, in the same immediate-mode batch.
+// Rows are 5 bits, bit 4 = leftmost column.
+static const unsigned char FONT57[][7] = {
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },  // ' '
+    { 0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04 },  // '!'
+    { 0x0A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00 },  // '"'
+    { 0x0A, 0x0A, 0x1F, 0x0A, 0x1F, 0x0A, 0x0A },  // '#'
+    { 0x04, 0x0F, 0x14, 0x0E, 0x05, 0x1E, 0x04 },  // '$'
+    { 0x19, 0x1A, 0x02, 0x04, 0x08, 0x0B, 0x13 },  // '%'
+    { 0x0C, 0x12, 0x14, 0x08, 0x15, 0x12, 0x0D },  // '&'
+    { 0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00 },  // '''
+    { 0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02 },  // '('
+    { 0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08 },  // ')'
+    { 0x00, 0x15, 0x0E, 0x1F, 0x0E, 0x15, 0x00 },  // '*'
+    { 0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00 },  // '+'
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x08 },  // ','
+    { 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00 },  // '-'
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C },  // '.'
+    { 0x01, 0x02, 0x02, 0x04, 0x08, 0x08, 0x10 },  // '/'
+    { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E },  // '0'
+    { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E },  // '1'
+    { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F },  // '2'
+    { 0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E },  // '3'
+    { 0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02 },  // '4'
+    { 0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E },  // '5'
+    { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E },  // '6'
+    { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 },  // '7'
+    { 0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E },  // '8'
+    { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C },  // '9'
+    { 0x00, 0x0C, 0x0C, 0x00, 0x0C, 0x0C, 0x00 },  // ':'
+    { 0x00, 0x06, 0x06, 0x00, 0x06, 0x06, 0x04 },  // ';'
+    { 0x02, 0x04, 0x08, 0x10, 0x08, 0x04, 0x02 },  // '<'
+    { 0x00, 0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00 },  // '='
+    { 0x08, 0x04, 0x02, 0x01, 0x02, 0x04, 0x08 },  // '>'
+    { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04 },  // '?'
+    { 0x0E, 0x11, 0x17, 0x15, 0x17, 0x10, 0x0E },  // '@'
+    { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 },  // 'A'
+    { 0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E },  // 'B'
+    { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E },  // 'C'
+    { 0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C },  // 'D'
+    { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F },  // 'E'
+    { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10 },  // 'F'
+    { 0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F },  // 'G'
+    { 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 },  // 'H'
+    { 0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E },  // 'I'
+    { 0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C },  // 'J'
+    { 0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11 },  // 'K'
+    { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F },  // 'L'
+    { 0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11 },  // 'M'
+    { 0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11 },  // 'N'
+    { 0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E },  // 'O'
+    { 0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10 },  // 'P'
+    { 0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D },  // 'Q'
+    { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11 },  // 'R'
+    { 0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E },  // 'S'
+    { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 },  // 'T'
+    { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E },  // 'U'
+    { 0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04 },  // 'V'
+    { 0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11 },  // 'W'
+    { 0x11, 0x0A, 0x04, 0x04, 0x04, 0x0A, 0x11 },  // 'X'
+    { 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04, 0x04 },  // 'Y'
+    { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F },  // 'Z'
+    { 0x0E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x0E },  // '['
+    { 0x10, 0x08, 0x08, 0x04, 0x02, 0x02, 0x01 },  // backslash
+    { 0x0E, 0x02, 0x02, 0x02, 0x02, 0x02, 0x0E },  // ']'
+    { 0x04, 0x0A, 0x11, 0x00, 0x00, 0x00, 0x00 },  // '^'
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F },  // '_'
+    { 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 },  // '|'
 };
-static const unsigned short FONT_ALPHA[26] = {
-    G(2,5,7,5,5), G(3,5,3,5,3), G(6,1,1,1,6), G(3,5,5,5,3), G(7,1,3,1,7), // A-E
-    G(7,1,3,1,1), G(6,1,5,5,6), G(5,5,7,5,5), G(7,2,2,2,7), G(4,4,4,5,2), // F-J
-    G(5,5,3,5,5), G(1,1,1,1,7), G(5,7,7,5,5), G(5,7,7,7,5), G(7,5,5,5,7), // K-O
-    G(7,5,7,1,1), G(7,5,5,7,4), G(7,5,3,5,5), G(6,1,2,4,3), G(7,2,2,2,2), // P-T
-    G(5,5,5,5,7), G(5,5,5,5,2), G(5,5,7,7,5), G(5,5,2,5,5), G(5,5,2,2,2), // U-Y
-    G(7,4,2,1,7),                                                          // Z
-};
-static unsigned short glyph_of(char c) {
-    if (c >= '0' && c <= '9') return FONT_DIGIT[c - '0'];
-    if (c >= 'A' && c <= 'Z') return FONT_ALPHA[c - 'A'];
-    if (c >= 'a' && c <= 'z') return FONT_ALPHA[c - 'a'];
-    switch (c) {
-        case ' ': return G(0,0,0,0,0);  case '.': return G(0,0,0,0,2);
-        case ',': return G(0,0,0,2,1);  case '-': return G(0,0,7,0,0);
-        case '+': return G(0,2,7,2,0);  case '=': return G(0,7,0,7,0);
-        case ':': return G(0,2,0,2,0);  case '(': return G(4,2,2,2,4);
-        case ')': return G(1,2,2,2,1);  case '/': return G(4,4,2,1,1);
-        case '%': return G(5,4,2,1,5);  case '<': return G(4,2,1,2,4);
-        case '>': return G(1,2,4,2,1);  case '_': return G(0,0,0,0,7);
-        case '|': return G(2,2,2,2,2);  case '#': return G(5,7,5,7,5);
-        case '!': return G(2,2,2,0,2);  case '?': return G(7,4,2,0,2);
-        case '*': return G(5,2,5,0,0);  case '\'':return G(2,2,0,0,0);
-        default:  return G(0,7,5,7,0);                   // unknown -> a box
-    }
+static const char FONT57_SET[] = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_|";
+static int font57_index(char c) {
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');   // the set is upper-case only
+    for (int i = 0; FONT57_SET[i]; i++) if (FONT57_SET[i] == c) return i;
+    return 0;                                              // unknown -> space, never a garbage glyph
 }
 static int g_px = 3;                                     // pixel size; char cell = 3*px wide
+// 5 columns + 1 of spacing.
+static const int FONT_ADV = 6, FONT_ROWS = 7;
+
 static void draw_text_px(int x, int y_top, float r, float g, float b, const char* s, int px) {
-    glColor4f(r, g, b, 1.0f);
-    glBegin(GL_QUADS);
-    int cx = x;
-    for (const char* p = s; *p; p++, cx += 4 * px) {
-        unsigned short gl = glyph_of(*p);
-        if (!gl) continue;
-        for (int row = 0; row < 5; row++) for (int col = 0; col < 3; col++) {
-            if (!(gl & (1 << (row * 3 + col)))) continue;
-            float qx = (float)(cx + col * px), qy = (float)(y_top + row * px);
-            glVertex2f(qx, qy); glVertex2f(qx+px, qy);
-            glVertex2f(qx+px, qy+px); glVertex2f(qx, qy+px);
+    // A soft drop shadow first. These panels sit over whatever the game is drawing, and a one-pixel dark
+    // offset is what stops light text dissolving into a bright scene - it costs one extra batch and does
+    // more for legibility than any amount of glyph detail.
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 0) glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
+        else           glColor4f(r, g, b, 1.0f);
+        const int off = pass == 0 ? px : 0;
+        glBegin(GL_QUADS);
+        int cx = x;
+        for (const char* q = s; *q; q++, cx += FONT_ADV * px) {
+            const unsigned char* gl = FONT57[font57_index(*q)];
+            for (int row = 0; row < FONT_ROWS; row++) {
+                unsigned char bits = gl[row];
+                if (!bits) continue;
+                // Runs of set pixels become ONE quad rather than several: fewer vertices, and no seam
+                // artefacts between adjacent pixels within a glyph.
+                int col = 0;
+                while (col < 5) {
+                    if (!(bits & (0x10 >> col))) { col++; continue; }
+                    int run = 0;
+                    while (col + run < 5 && (bits & (0x10 >> (col + run)))) run++;
+                    float qx = (float)(cx + col * px + off), qy = (float)(y_top + row * px + off);
+                    float w = (float)(run * px), h = (float)px;
+                    glVertex2f(qx, qy);         glVertex2f(qx + w, qy);
+                    glVertex2f(qx + w, qy + h); glVertex2f(qx, qy + h);
+                    col += run;
+                }
+            }
         }
+        glEnd();
+    }
+}
+
+// ======================= BOOT SEQUENCE OVERLAY =======================
+// The mod now loads WITH the game rather than being injected into a running one, so there is a real startup
+// period - hooks going in, Steam warming up, the localisation table filling, a partner pairing - that used
+// to be invisible unless someone opened a log file. Showing it does three jobs at once: it proves the mod
+// loaded (the first thing anyone wants to know), it shows WHERE a failed start got to, and a screenshot of
+// it is a far better bug report than "it didn't work".
+//
+// Deliberately cheap: text lines and two quads, drawn only for a few seconds, in the same immediate-mode GL
+// the rest of the overlay already uses. It fades out on its own so it never becomes clutter.
+
+#define BOOT_MAX 12
+// `status` is stored rather than inferred: the draw code used to recover it by comparing the colour back
+// (amber-ish => in progress), which breaks the moment a palette entry changes.
+//   0 = working   1 = ok   2 = failed   3 = neutral   4 = waiting (normal, still watching)   5 = note
+// A note is a hint line, not a startup step - it gets a text row but NO voxel, because a dot that does not
+// correspond to a step is exactly what makes the row look arbitrary.
+struct BootStep { char text[72]; float r, g, b; DWORD at; int status; };
+static BootStep g_boot[BOOT_MAX];
+static int      g_nboot = 0;
+static DWORD    g_boot_t0 = 0;
+static bool     g_boot_done = false;      // set once the sequence has faded; stops all of this drawing
+
+// Called from coop.cpp as startup progresses. Thread-safe enough for the purpose: the writer is the setup
+// thread, the reader is the render thread, and a torn read costs one frame of a half-written string.
+extern "C" __declspec(dllexport) void wsdraw_boot_step(const char* text, int status) {
+    if (g_nboot >= BOOT_MAX || g_boot_done) return;
+    BootStep* b = &g_boot[g_nboot];
+    strncpy_s(b->text, sizeof b->text, text ? text : "", _TRUNCATE);
+    // 0 = working (amber), 1 = ok (green), 2 = failed (red), 3 = skipped/neutral (grey)
+    b->status = status;
+    switch (status) {
+        case 1:  b->r=0.35f; b->g=0.95f; b->b=0.55f; break;   // ok
+        case 2:  b->r=1.00f; b->g=0.35f; b->b=0.30f; break;   // failed
+        case 3:  b->r=0.55f; b->g=0.58f; b->b=0.64f; break;   // neutral
+        case 4:  b->r=0.40f; b->g=0.70f; b->b=1.00f; break;   // waiting - calm blue, NOT amber: "no partner
+                                                              // yet" is a normal state, and amber reads as a
+                                                              // fault sitting among the greens
+        case 5:  b->r=0.50f; b->g=0.54f; b->b=0.60f; break;   // note (no voxel)
+        default: b->r=1.00f; b->g=0.78f; b->b=0.30f; break;   // working
+    }
+    b->at = GetTickCount();
+    if (!g_boot_t0) g_boot_t0 = b->at;
+    g_nboot++;
+}
+
+// Update the status of the most recent line with the same prefix - so a step can appear as "working" and
+// then resolve, rather than every state change adding another row.
+extern "C" __declspec(dllexport) void wsdraw_boot_resolve(const char* prefix, const char* text, int status) {
+    if (g_boot_done || !prefix) return;
+    for (int i = g_nboot - 1; i >= 0; i--) {
+        if (strncmp(g_boot[i].text, prefix, strlen(prefix)) != 0) continue;
+        strncpy_s(g_boot[i].text, sizeof g_boot[i].text, text ? text : g_boot[i].text, _TRUNCATE);
+        g_boot[i].status = status;
+        switch (status) {
+            case 1:  g_boot[i].r=0.35f; g_boot[i].g=0.95f; g_boot[i].b=0.55f; break;
+            case 2:  g_boot[i].r=1.00f; g_boot[i].g=0.35f; g_boot[i].b=0.30f; break;
+            case 3:  g_boot[i].r=0.55f; g_boot[i].g=0.58f; g_boot[i].b=0.64f; break;
+            case 4:  g_boot[i].r=0.40f; g_boot[i].g=0.70f; g_boot[i].b=1.00f; break;
+            case 5:  g_boot[i].r=0.50f; g_boot[i].g=0.54f; g_boot[i].b=0.60f; break;
+            default: g_boot[i].r=1.00f; g_boot[i].g=0.78f; g_boot[i].b=0.30f; break;
+        }
+        return;
+    }
+    wsdraw_boot_step(text ? text : prefix, status);
+}
+
+// Small helpers so the sequence below reads as animation rather than as GL bookkeeping.
+static void quad(float x, float y, float w, float h, float r, float g, float b, float a) {
+    glColor4f(r, g, b, a);
+    glBegin(GL_QUADS);
+      glVertex2f(x, y);     glVertex2f(x + w, y);
+      glVertex2f(x + w, y + h); glVertex2f(x, y + h);
+    glEnd();
+}
+// ease-out cubic - fast in, gentle landing. Everything here uses it so the motion feels like one system.
+static float ease_out(float t) { if (t < 0) t = 0; if (t > 1) t = 1; float u = 1.0f - t; return 1.0f - u*u*u; }
+static float ease_back(float t) {   // slight overshoot, for things that "pop" into place
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    float u = t - 1.0f; const float s = 1.70158f;
+    return u*u*((s + 1.0f)*u + s) + 1.0f;
+}
+
+// A rotated rectangle. The panel is all axis-aligned quads, but a hammer that cannot swing is not a hammer.
+// Rect given in LOCAL coords around a pivot, then rotated by `a` radians and translated to (px,py).
+// Screen y grows downward, so a NEGATIVE angle lifts the far end of the hammer upwards.
+static void quad_rot(float px, float py, float x0, float y0, float x1, float y1,
+                     float a, float r, float g, float b, float al) {
+    const float c = (float)cos(a), s = (float)sin(a);
+    const float vx[4] = { x0, x1, x1, x0 };
+    const float vy[4] = { y0, y0, y1, y1 };
+    glColor4f(r, g, b, al);
+    glBegin(GL_QUADS);
+    for (int i = 0; i < 4; i++)
+        glVertex2f(px + vx[i]*c - vy[i]*s, py + vx[i]*s + vy[i]*c);
+    glEnd();
+}
+
+// ---- curves. The overlay has only ever drawn axis-aligned rectangles, which is why anything built from
+// them reads as blocky. These are the same immediate-mode GL, just not squares.
+static void ring(float cx, float cy, float rad, float w, int seg,
+                 float r, float g, float b, float al) {
+    glColor4f(r, g, b, al);
+    glBegin(GL_TRIANGLE_STRIP);
+    for (int i = 0; i <= seg; i++) {
+        float a = (float)i / seg * 6.2831853f, c = (float)cos(a), s2 = (float)sin(a);
+        glVertex2f(cx + c*(rad-w), cy + s2*(rad-w));
+        glVertex2f(cx + c*(rad+w), cy + s2*(rad+w));
     }
     glEnd();
 }
+
+// THE RADAR. It replaced a hammer that was both too blocky and too close to another game's forge - but the
+// better reason is that this one MEANS something. At boot the only genuinely pending thing is the partner
+// search, so the sweep runs while we are looking and locks onto a contact when one is found. Decoration that
+// doubles as the status readout for the one step that is actually waiting.
+static void draw_boot_radar(float cx, float cy, float rad, bool searching, DWORD now, float A) {
+    const float R = 0.30f, G = 0.85f, B = 0.75f;         // phosphor green-cyan
+
+    // dish: face, range rings, crosshairs
+    glColor4f(0.04f, 0.10f, 0.11f, 0.55f * A);
+    glBegin(GL_TRIANGLE_FAN);
+      glVertex2f(cx, cy);
+      for (int i = 0; i <= 48; i++) { float a = (float)i/48*6.2831853f;
+          glVertex2f(cx + (float)cos(a)*rad, cy + (float)sin(a)*rad); }
+    glEnd();
+    ring(cx, cy, rad,          1.1f, 56, R, G, B, 0.55f * A);
+    ring(cx, cy, rad * 0.66f,  0.7f, 44, R, G, B, 0.24f * A);
+    ring(cx, cy, rad * 0.33f,  0.7f, 32, R, G, B, 0.24f * A);
+    quad(cx - rad, cy - 0.5f, rad*2, 1.0f, R, G, B, 0.18f * A);
+    quad(cx - 0.5f, cy - rad, 1.0f, rad*2, R, G, B, 0.18f * A);
+
+    // sweep: a wedge trailing the leading edge, fading with a square falloff so it reads as persistence
+    const float PERIOD = 2600.0f;
+    float ang = searching ? (float)(now % (DWORD)PERIOD) / PERIOD * 6.2831853f : -1.05f;
+    const float TRAIL = 1.85f;
+    const int   SEG   = 26;
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < SEG; i++) {
+        float t0 = (float)i/SEG, t1 = (float)(i+1)/SEG;
+        float a0 = ang - TRAIL*t0, a1 = ang - TRAIL*t1;
+        float f0 = (1.0f-t0)*(1.0f-t0), f1 = (1.0f-t1)*(1.0f-t1);
+        glColor4f(R, G, B, 0.30f * f0 * A); glVertex2f(cx, cy);
+        glColor4f(R, G, B, 0.22f * f0 * A); glVertex2f(cx + (float)cos(a0)*rad, cy + (float)sin(a0)*rad);
+        glColor4f(R, G, B, 0.22f * f1 * A); glVertex2f(cx + (float)cos(a1)*rad, cy + (float)sin(a1)*rad);
+    }
+    glEnd();
+    glColor4f(0.55f, 1.0f, 0.90f, 0.85f * A);            // bright leading edge
+    glBegin(GL_TRIANGLES);
+      glVertex2f(cx, cy);
+      glVertex2f(cx + (float)cos(ang-0.02f)*rad, cy + (float)sin(ang-0.02f)*rad);
+      glVertex2f(cx + (float)cos(ang+0.02f)*rad, cy + (float)sin(ang+0.02f)*rad);
+    glEnd();
+
+    // faint returns - fixed bearings, brightening as the sweep passes and decaying after. No RNG: a hash of
+    // the index, so the picture is identical every launch instead of flickering differently each time.
+    for (int i = 0; i < 5; i++) {
+        unsigned h = (unsigned)(i*2654435761u);
+        float ba = (float)(h % 6283) / 1000.0f;
+        float br = rad * (0.28f + (float)((h >> 11) % 620) / 1000.0f);
+        float d = ang - ba; while (d < 0) d += 6.2831853f; while (d > 6.2831853f) d -= 6.2831853f;
+        float f = d < 2.2f ? (1.0f - d / 2.2f) : 0.0f;
+        if (f <= 0.0f) continue;
+        float px = cx + (float)cos(ba)*br, py = cy + (float)sin(ba)*br;
+        ring(px, py, 2.4f, 1.2f, 10, 0.45f, 0.95f, 0.80f, f*f * 0.75f * A);
+    }
+
+    if (!searching) {
+        // CONTACT. Locked bearing, a pulsing blip and an expanding ring - the moment a partner is found.
+        float px = cx + (float)cos(-1.05f)*rad*0.58f, py = cy + (float)sin(-1.05f)*rad*0.58f;
+        float ph = (float)(now % 1400) / 1400.0f;
+        ring(px, py, 3.0f + ph*rad*0.30f, 1.0f, 20, 0.45f, 1.0f, 0.70f, (1.0f-ph) * 0.7f * A);
+        glColor4f(0.60f, 1.0f, 0.72f, 0.95f * A);
+        glBegin(GL_TRIANGLE_FAN);
+          glVertex2f(px, py);
+          for (int i = 0; i <= 14; i++) { float a = (float)i/14*6.2831853f;
+              glVertex2f(px + (float)cos(a)*3.4f, py + (float)sin(a)*3.4f); }
+        glEnd();
+        draw_text_px((int)(cx - rad), (int)(cy + rad + 6), 0.45f*A, 1.0f*A, 0.72f*A, "CONTACT", 2);
+    } else {
+        draw_text_px((int)(cx - rad), (int)(cy + rad + 6), 0.35f*A, 0.72f*A, 0.68f*A, "SCANNING", 2);
+    }
+}
+
+static void draw_boot_sequence(int sw, int sh) {
+    if (g_boot_done || !g_nboot || !g_boot_t0) return;
+    DWORD now = GetTickCount();
+
+    // ANCHOR EVERYTHING TO THE FIRST FRAME WE ACTUALLY DRAW, not to when the steps were pushed. Under the
+    // ASI loader the mod loads and finishes its whole startup during process init - long before the game
+    // opens a window - so by the time this first renders, every push timestamp is already seconds in the
+    // past and the entire sequence has "played" to an empty screen. Anchoring here means the animation
+    // starts when someone can first see it, whatever happened before that.
+    static DWORD s_first_draw = 0;
+    if (!s_first_draw) s_first_draw = now;
+    DWORD age = now - s_first_draw;
+
+    // REVEAL ORDER. Most of setup() finishes in one burst, so the steps arrive within a few milliseconds of
+    // each other and the whole row appeared at once - which reads as a flash, not as loading. Enforce a
+    // minimum spacing between reveals so the dots light up left to right. A step that genuinely took time
+    // still shows at its real moment; only bursts get spread out, so this never fakes progress that did not
+    // happen, it just stops simultaneous events from being indistinguishable.
+    const DWORD STAGGER = 220;      // per dot. 130 ms put the whole row up in half a second - too fast to read
+    const DWORD LEADIN  = 300;      // so the panel is on screen before the first dot lights
+
+    // DISPLAY ORDER: settled steps first in the order they happened, then the hint line, then anything
+    // still PENDING. So both the strip and the list END on what we are still waiting for - a blue
+    // "no partner yet" belongs on the right as the thing in progress, not buried mid-row where it reads as
+    // a fault among the greens, and it should be the last line your eye lands on.
+    // Ordering by STATUS rather than by reordering the boot_step() calls also means a step that resolves
+    // late (the workbench prompt patch retries from the frame hook) cannot land after it.
+    int ord[BOOT_MAX]; int nord = 0;
+    for (int pass = 0; pass < 3; pass++)
+        for (int i = 0; i < g_nboot && nord < BOOT_MAX; i++) {
+            int st = g_boot[i].status;
+            int cls = (st == 5) ? 1 : ((st == 4 || st == 0) ? 2 : 0);   // 0 settled, 1 note, 2 pending
+            if (cls == pass) ord[nord++] = i;
+        }
+
+    DWORD reveal[BOOT_MAX];
+    for (int d = 0; d < nord; d++) {
+        DWORD want = s_first_draw + LEADIN + (DWORD)d * STAGGER;
+        // A step that genuinely happens LATER than its slot still shows at its real moment - so a slow Steam
+        // handshake reads as slow, and the animation never claims progress that has not happened.
+        reveal[d] = g_boot[ord[d]].at > want ? g_boot[ord[d]].at : want;
+        if (d > 0 && reveal[d] < reveal[d-1] + STAGGER) reveal[d] = reveal[d-1] + STAGGER;
+    }
+    const DWORD last_reveal = nord ? reveal[nord-1] : now;
+
+    DWORD since_last = now > last_reveal ? now - last_reveal : 0;
+    float alpha = 1.0f;
+    if (since_last > 6000) {
+        if (since_last > 8000) { g_boot_done = true; return; }
+        alpha = 1.0f - (float)(since_last - 6000) / 2000.0f;
+        alpha = ease_out(alpha);            // fade out on the same curve everything else moves on
+    }
+
+    const int PAD = 22, ROW = 26, W = 760;   // room for the text column AND the radar beside it
+    const int HEAD = 60, H = PAD*2 + HEAD + g_nboot*ROW;
+    const float X = (float)((sw - W) / 2);
+    // Slide up and settle, with a touch of overshoot.
+    float intro = ease_back(age / 420.0f);
+    // BOTTOM-ANCHORED, not a fixed fraction from the top. At 0.24 it landed straight on the Stormworks
+    // logo, which occupies the upper-middle of both the loading screen and the main menu (wordmark ends
+    // ~53% down, the menu button row sits ~69%). Anchoring to the bottom edge clears all of it at any
+    // resolution and any step count, since the panel grows upward as steps arrive rather than downward
+    // into the buttons.
+    const float Y = (float)sh - (float)H - (float)sh * 0.045f + (1.0f - intro) * 26.0f;
+    float A = alpha * ease_out(age / 260.0f);
+
+    // ---- panel: dark body, a brighter rim, and a soft top edge so it reads as lit from above ----
+    quad(X, Y, (float)W, (float)H, 0.035f, 0.05f, 0.085f, 0.88f * A);
+    quad(X, Y, (float)W, 2.0f,     0.35f,  0.72f, 1.0f,   0.55f * A);   // top hairline
+    quad(X, Y + H - 1.5f, (float)W, 1.5f, 0.10f, 0.20f, 0.32f, 0.6f * A);
+
+    // ---- a slow highlight sweeping across the panel, like a scanline ----
+    float sweep = (float)((age % 2600) / 2600.0f);
+    float sx = X - 120.0f + sweep * (W + 240.0f);
+    for (int i = 0; i < 10; i++) {                     // cheap soft edge: a few stacked slivers
+        float f = 1.0f - (float)i / 10.0f;
+        quad(sx + i*6.0f, Y, 6.0f, (float)H, 0.35f, 0.75f, 1.0f, 0.030f * f * A);
+        quad(sx - i*6.0f, Y, 6.0f, (float)H, 0.35f, 0.75f, 1.0f, 0.030f * f * A);
+    }
+
+    // ---- voxel row: blocks assembling, one per boot step, because this is a block-building game ----
+    const float VS = 15.0f, VG = 6.0f;                 // size, gap
+    const float vx0 = X + PAD, vy = Y + 20.0f;
+    // One voxel per REAL step - notes (status 5) are hints, not steps, and a dot with no step behind it is
+    // what made the row look arbitrary. No trailing empty slots either: BOOT_MAX is a buffer bound, not a
+    // promise about how many steps this launch has, and six empty outlines read as "something didn't finish".
+    int slot = 0;
+    int slot_of[BOOT_MAX];
+    for (int d = 0; d < BOOT_MAX; d++) slot_of[d] = -1;
+    for (int d = 0; d < nord; d++) {
+        const BootStep* st = &g_boot[ord[d]];
+        if (st->status == 5) continue;
+        float bx = vx0 + slot * (VS + VG);
+        slot_of[d] = slot;
+        slot++;
+        // Not yet its turn: a faint outline, so you can see how much is still to come.
+        if (now < reveal[d]) { quad(bx, vy, VS, VS, 0.16f, 0.22f, 0.30f, 0.35f * A); continue; }
+        float bt = (float)(now - reveal[d]) / 300.0f;
+        float sc = ease_back(bt);
+        if (sc > 1.0f) sc = 1.0f;
+        float s = VS * sc, off = (VS - s) * 0.5f;
+        // A waiting step breathes, so it reads as "still going" rather than "stopped here".
+        float a = 0.95f;
+        if (st->status == 4 || st->status == 0) {
+            float ph = (float)((now % 1600) / 1600.0f) * 6.2832f;
+            a = 0.62f + 0.33f * (0.5f + 0.5f * (float)cos(ph));
+        }
+        quad(bx + off, vy + off, s, s, st->r, st->g, st->b, a * A);
+        if (bt < 1.0f) quad(bx - 3, vy - 3, VS + 6, VS + 6, st->r, st->g, st->b, 0.35f * (1.0f - bt) * A);
+    }
+
+    // ---- the hammer: swings onto whichever dot is about to light ----
+    {
+        int td = -1;
+        for (int d = 0; d < nord; d++) if (slot_of[d] >= 0 && now < reveal[d]) { td = d; break; }
+        if (td < 0)                                        // all struck - keep it on the last for the recoil
+            for (int d = nord - 1; d >= 0; d--) if (slot_of[d] >= 0) { td = d; break; }
+        (void)td;
+        // Right-hand side of the panel - the text only ever fills the left half, so this was dead space.
+        // "Searching" is taken from the boot steps themselves: status 4 is the pending partner search, so
+        // the sweep runs exactly while that step is unresolved and locks the moment it is not.
+        bool searching = false;
+        for (int d = 0; d < nord; d++) if (g_boot[ord[d]].status == 4) { searching = true; break; }
+        float rad = (float)H * 0.34f; if (rad > 62.0f) rad = 62.0f; if (rad < 26.0f) rad = 26.0f;
+        draw_boot_radar(X + W * 0.79f, Y + (float)H * 0.47f, rad, searching, now, A);
+    }
+
+    // ---- title, revealed a character at a time ----
+    {
+        static const char* T = "COOP WORKBENCH  " COOP_VERSION;
+        int n = (int)strlen(T);
+        int shown = (int)(age / 22);                  // ~45 chars/sec
+        if (shown > n) shown = n;
+        char buf[96]; int m = shown < 95 ? shown : 95;
+        memcpy(buf, T, m); buf[m] = 0;
+        draw_text_px((int)X + PAD, (int)Y + 40, 0.55f*A, 0.90f*A, 1.0f*A, buf, 3);
+        // caret while typing
+        if (shown < n && ((age / 260) % 2) == 0)
+            quad(X + PAD + shown*16.0f, Y + 40, 10.0f, 19.0f, 0.55f, 0.90f, 1.0f, 0.7f * A);
+    }
+
+    // ---- step lines: each types itself in, with a live glyph on the left ----
+    static const char SPIN[] = { '|', '/', '-', '\\' };
+    for (int d = 0; d < nord; d++) {
+        const int i = ord[d];
+        const BootStep* st = &g_boot[i];
+        if (now < reveal[d]) continue;                 // same cadence as its voxel
+        DWORD ra = now - reveal[d];
+        float rf = ease_out(ra / 200.0f);
+        float a = A * rf;
+        int ly = (int)Y + PAD + HEAD + d*ROW;   // display slot, not push index
+
+        // glyph: spinner while working, a tick once resolved, a dot when neutral
+        char gl[2] = { ' ', 0 };
+        switch (st->status) {
+            case 1:  gl[0] = '+'; break;                       // done
+            case 2:  gl[0] = 'x'; break;                       // failed
+            case 3:  gl[0] = '-'; break;                       // neutral
+            case 4:  gl[0] = SPIN[(now / 160) % 4]; break;     // waiting - still watching
+            case 5:  gl[0] = ' '; break;                       // note
+            default: gl[0] = SPIN[(now / 110) % 4]; break;     // working
+        }
+        draw_text_px((int)X + PAD, ly, st->r*a, st->g*a, st->b*a, gl, 2);
+
+        // the text types out just after its row appears
+        int n = (int)strlen(st->text);
+        int shown = (int)((ra > 120 ? ra - 120 : 0) / 14);
+        if (shown > n) shown = n;
+        char buf[80]; int m = shown < 79 ? shown : 79;
+        memcpy(buf, st->text, m); buf[m] = 0;
+        draw_text_px((int)X + PAD + 24, ly, st->r*a, st->g*a, st->b*a, buf, 2);
+    }
+
+    // ---- progress rail along the bottom, with a soft leading edge ----
+    int shown_steps = 0;
+    for (int d = 0; d < nord; d++) if (now >= reveal[d]) shown_steps++;
+    float prog = nord ? (float)shown_steps / (float)nord : 0.0f;
+    if (prog > 1.0f) prog = 1.0f;
+    static float s_shown = 0.0f;
+    s_shown += (prog - s_shown) * 0.08f;                                     // eases toward the target
+    float py = Y + H - 6.0f;
+    quad(X, py, (float)W, 3.5f, 0.12f, 0.18f, 0.26f, 0.8f * A);
+    quad(X, py, W * s_shown, 3.5f, 0.30f, 0.78f, 1.0f, 0.95f * A);
+    quad(X + W*s_shown - 14.0f, py - 1.5f, 14.0f, 6.0f, 0.6f, 0.9f, 1.0f, 0.7f * A);
+}
 static void draw_text(int x, int y_top, float r, float g, float b, const char* s) {
     draw_text_px(x, y_top, r, g, b, s, g_px);
+}
+
+
+// ======================= IN-GAME LOG VIEWER (F8) =======================
+// Every diagnosis in this project has run the same loop: do a thing in game, alt-tab, open a text file,
+// scroll to the bottom, work out which lines belong to the thing you just did, alt-tab back. That loop is
+// the single biggest cost in testing, it is worse in fullscreen, and it is impossible for anyone else -
+// a tester who cannot read the log can only report "it didn't work".
+//
+// So the log draws in the game. F8 toggles it, PageUp/PageDown scroll, Home/End jump, F2 filters. Lines are
+// coloured by what they are, which matters more than it sounds: a wall of monospaced text is unreadable at a
+// glance, but "red = something refused, cyan = we sent, green = we received" is readable at speed.
+//
+// The ring is memory-only and separate from the file - the file stays the artifact you attach to a bug
+// report, this is the one you read while playing.
+
+#define LOG_RING  1024
+#define LOG_COLS  220
+static char  g_lr[LOG_RING][LOG_COLS];
+static volatile LONG g_lr_total = 0;          // lines ever pushed; index = (total-1) % LOG_RING
+static CRITICAL_SECTION g_lr_cs;
+static bool  g_lr_ok = false;
+static volatile LONG g_logview = 0;           // F8
+static volatile LONG g_lr_scroll = 0;         // lines back from the newest; 0 = following the tail
+static volatile LONG g_lr_filter = 0;         // F2 cycles
+
+// Called from coop.cpp's logline for every line written. Must stay cheap and must never block the caller for
+// long - logging happens on the Steam thread, the main thread and the setup thread.
+extern "C" __declspec(dllexport) void wsdraw_log_init() { InitializeCriticalSection(&g_lr_cs); g_lr_ok = true; }
+extern "C" __declspec(dllexport) void wsdraw_log_push(const char* text) {
+    if (!g_lr_ok || !text) return;
+    EnterCriticalSection(&g_lr_cs);
+    LONG idx = g_lr_total % LOG_RING;
+    strncpy_s(g_lr[idx], LOG_COLS, text, _TRUNCATE);
+    g_lr_total++;
+    // Following the tail: stay there. Scrolled back: hold position relative to the line you were reading,
+    // so new output does not yank the view out from under you mid-read.
+    if (g_lr_scroll > 0 && g_lr_scroll < LOG_RING) g_lr_scroll++;
+    LeaveCriticalSection(&g_lr_cs);
+}
+
+static const char* const LR_FILTERS[] = { "all", "sync", "errors", "properties" };
+static bool lr_passes(const char* s, LONG f) {
+    switch (f) {
+        case 1: return strstr(s, ">>>") || strstr(s, "<<<") || strstr(s, "<detect>") || strstr(s, "[psync]");
+        case 2: return strstr(s, "!!!") || strstr(s, "FAIL") || strstr(s, "REFUS") || strstr(s, "EXC")
+                    || strstr(s, "CRASH") || strstr(s, "***") || strstr(s, "BLOCKED");
+        case 3: return strstr(s, "[psync]") || strstr(s, "[pdiff]") || strstr(s, "[apply]")
+                    || strstr(s, "[splice]") || strstr(s, "[head]") || strstr(s, "[idx]");
+        default: return true;
+    }
+}
+// Colour by meaning, not by severity alone - at speed you are asking "did it send / did it arrive / did it
+// refuse", and three distinguishable colours answer that faster than reading the words.
+static void lr_colour(const char* s, float* r, float* g, float* b) {
+    if (strstr(s, "!!!") || strstr(s, "FAIL") || strstr(s, "CRASH") || strstr(s, "REFUS") || strstr(s, "EXC"))
+         { *r=1.00f; *g=0.38f; *b=0.34f; return; }               // refused / broke
+    if (strstr(s, "***"))                { *r=1.00f; *g=0.82f; *b=0.35f; return; }   // a verdict line
+    if (strstr(s, ">>>"))                { *r=0.45f; *g=0.82f; *b=1.00f; return; }   // we sent
+    if (strstr(s, "<<<"))                { *r=0.45f; *g=0.95f; *b=0.60f; return; }   // we received
+    if (strstr(s, "[psync]"))            { *r=0.80f; *g=0.70f; *b=1.00f; return; }   // property sync
+    if (strstr(s, "<detect>"))           { *r=0.70f; *g=0.90f; *b=0.80f; return; }   // local edit detected
+    *r=0.64f; *g=0.68f; *b=0.74f;                                                    // everything else
+}
+
+static void draw_log_view(int sw, int sh) {
+    if (!InterlockedCompareExchange(&g_logview, 0, 0) || !g_lr_ok) return;
+
+    const int PX = 2, CH = FONT_ADV*2, ROW = FONT_ROWS*2 + 4;   // 5x7 glyph: 12 wide, 18 per row
+    const int PAD = 10, HEAD = 20;
+    // Top-left, in the same column as the status panel - and when BOTH are open the log starts below it, so
+    // the panel stays readable. It also draws before the menu, so any overlap resolves in the menu's favour.
+    const int X = MENU_X;
+    const int Y = MENU_Y + (InterlockedCompareExchange(&g_menu, 0, 0) ? MENU_H + 6 : 0);
+    int W = sw - X*2; if (W > 1200) W = 1200;
+    int rows = (sh - Y - 24 - PAD*2 - HEAD) / ROW;
+    if (rows > 40) rows = 40;                   // a wall of text is harder to read than a window onto it
+    if (rows < 4)  rows = 4;
+    const int ROWS = rows;
+    const int H = PAD*2 + HEAD + ROWS*ROW;
+
+    quad((float)X, (float)Y, (float)W, (float)H, 0.02f, 0.03f, 0.05f, 0.90f);
+    quad((float)X, (float)Y, (float)W, 1.5f,     0.35f, 0.72f, 1.00f, 0.55f);
+
+    // Snapshot under the lock, then draw - GL calls must not happen with the log lock held, or a logging
+    // thread stalls for a whole frame.
+    static char view[256][LOG_COLS];
+    int nview = 0; LONG total, scroll, filter;
+    EnterCriticalSection(&g_lr_cs);
+    total = g_lr_total; scroll = g_lr_scroll; filter = g_lr_filter;
+    int have = total < LOG_RING ? (int)total : LOG_RING;
+    // Collect matching lines newest-first, skipping `scroll` of them, until the page is full.
+    int skipped = 0;
+    for (int k = 1; k <= have && nview < ROWS && nview < 256; k++) {
+        const char* s = g_lr[(total - k) % LOG_RING];
+        if (!lr_passes(s, filter)) continue;
+        if (skipped < scroll) { skipped++; continue; }
+        strncpy_s(view[nview++], LOG_COLS, s, _TRUNCATE);
+    }
+    LeaveCriticalSection(&g_lr_cs);
+
+    char head[160];
+    _snprintf_s(head, sizeof head, _TRUNCATE,
+                "LOG  [%s]   %ld lines%s    F8 close   PgUp/PgDn scroll   Home/End jump   F2 filter",
+                LR_FILTERS[filter % 4], total, scroll ? "   (scrolled back - End to follow)" : "   (live)");
+    draw_text_px(X + PAD, Y + PAD - 2, 0.55f, 0.88f, 1.0f, head, PX);
+
+    // Newest at the bottom, so it reads like a terminal.
+    for (int i = 0; i < nview; i++) {
+        float r, g, b; lr_colour(view[i], &r, &g, &b);
+        int y = Y + PAD + HEAD + (nview - 1 - i) * ROW;
+        // Clip rather than wrap: a wrapped line costs two rows and the interesting part of every line in
+        // this log is at the front.
+        char cut[LOG_COLS];
+        int maxc = (W - PAD*2) / CH; if (maxc > LOG_COLS - 1) maxc = LOG_COLS - 1;
+        strncpy_s(cut, LOG_COLS, view[i], _TRUNCATE);
+        if ((int)strlen(cut) > maxc) cut[maxc] = 0;
+        draw_text_px(X + PAD, y, r, g, b, cut, PX);
+    }
+    if (!nview)
+        draw_text_px(X + PAD, Y + PAD + HEAD, 0.5f, 0.5f, 0.55f, "(no lines match this filter - F2 to change)", PX);
+}
+
+// Key handling. The scroll keys are only consumed while the viewer is open, so they stay available to the
+// game the rest of the time.
+static void log_view_keys() {
+    static SHORT p8 = 0; SHORT k8 = GetAsyncKeyState(VK_F8);
+    if ((k8 & 0x8000) && !(p8 & 0x8000)) InterlockedExchange(&g_logview, !g_logview);
+    p8 = k8;
+    if (!InterlockedCompareExchange(&g_logview, 0, 0)) return;
+
+    const int PAGE = 14;
+    struct { int vk; int delta; } nav[] = { { VK_PRIOR, +PAGE }, { VK_NEXT, -PAGE },
+                                            { VK_UP, +1 }, { VK_DOWN, -1 } };
+    static SHORT pv[4] = {0,0,0,0};
+    for (int i = 0; i < 4; i++) {
+        SHORT k = GetAsyncKeyState(nav[i].vk);
+        // Repeat while held for the page keys, edge-triggered for the line keys - holding PageDown to get
+        // back to the tail is the common motion.
+        bool fire = (nav[i].vk == VK_PRIOR || nav[i].vk == VK_NEXT) ? ((k & 0x8000) != 0)
+                                                                    : ((k & 0x8000) && !(pv[i] & 0x8000));
+        if (fire) {
+            LONG s = g_lr_scroll + nav[i].delta;
+            if (s < 0) s = 0; if (s > LOG_RING - 1) s = LOG_RING - 1;
+            InterlockedExchange(&g_lr_scroll, s);
+        }
+        pv[i] = k;
+    }
+    static SHORT ph = 0; SHORT kh = GetAsyncKeyState(VK_HOME);
+    if ((kh & 0x8000) && !(ph & 0x8000)) InterlockedExchange(&g_lr_scroll, LOG_RING - 1);
+    ph = kh;
+    static SHORT pe = 0; SHORT ke = GetAsyncKeyState(VK_END);
+    if ((ke & 0x8000) && !(pe & 0x8000)) InterlockedExchange(&g_lr_scroll, 0);
+    pe = ke;
+    static SHORT pf = 0; SHORT kf = GetAsyncKeyState(VK_F2);
+    if ((kf & 0x8000) && !(pf & 0x8000)) {
+        InterlockedExchange(&g_lr_filter, (g_lr_filter + 1) % 4);
+        InterlockedExchange(&g_lr_scroll, 0);       // a new filter means a new list; start at the tail
+    }
+    pf = kf;
 }
 
 // A remote player's camera, drawn as a frustum in world space + a drop line to the ground
@@ -572,9 +1188,44 @@ static void draw(HDC hdc) {
     }
 
     // COOP MENU: always-on status panel (F6 hides it). Top-left, above the calibration HUD.
+    draw_boot_sequence(g_W, g_H);
+    draw_log_view(g_W, g_H);
+
+    // TOAST. A whole-craft reload tears down and rebuilds every component, and until now it was completely
+    // invisible - "I cannot even tell if a reload is happening". That is bad on one machine and worse on two,
+    // where "did my F7 do anything?" is the question you ask constantly. Brief, centred, fades itself out.
+    if (g_toast_at) {
+        DWORD age = GetTickCount() - g_toast_at;
+        if (age > 2600) g_toast_at = 0;
+        else {
+            float f = age < 160 ? (float)age / 160.0f
+                                : (age > 2000 ? 1.0f - (float)(age - 2000) / 600.0f : 1.0f);
+            // Top-left, in the same column as everything else, tucked under the F6 panel when that is open.
+            // Centre-screen is where the game's own messages live and it sits right over the build area.
+            int w = (int)strlen((const char*)g_toast) * FONT_ADV * 2 + 28;
+            int x = MENU_X;
+            int y = MENU_Y + (InterlockedCompareExchange(&g_menu, 0, 0) ? MENU_H + 6 : 0)
+                    + (int)((1.0f - f) * 8.0f);
+            quad((float)x, (float)y, (float)w, 26.0f, 0.05f, 0.09f, 0.13f, 0.86f * f);
+            quad((float)x, (float)y, (float)w, 1.6f, 0.35f, 0.80f, 1.0f, 0.85f * f);
+            draw_text_px(x + 14, y + 6, 0.60f*f, 0.90f*f, 1.0f*f, (const char*)g_toast, 2);
+        }
+    }
+
+    // SELF-TEST BANNER. Permanent, top of screen, while local-echo is on. This is not decoration: the file
+    // that enables it was found still present in a live install, and in that state the mod sends nothing to
+    // anyone while looking like it works.
+    if (g_selftest_on) {
+        const int BW = 560, BH = 26, BX = (g_W - BW) / 2;
+        float pulse = 0.55f + 0.30f * (float)fabs(sin((double)GetTickCount() * 0.0022));
+        quad((float)BX, 0.0f, (float)BW, (float)BH, 0.35f, 0.05f, 0.05f, 0.88f);
+        quad((float)BX, (float)(BH - 2), (float)BW, 2.0f, 1.0f, 0.30f, 0.25f, pulse);
+        draw_text_px(BX + 14, 6, 1.0f, 0.55f, 0.45f, "SELF-TEST MODE - NOT SENDING TO A PARTNER", 2);
+    }
+
     if (InterlockedCompareExchange(&g_menu, 0, 0)) {
         g_px = 2;
-        const int MX=8, MY=8, MROW=15, MW=470, MH=6*MROW+12;   // wide enough for the title + version line
+        const int MX=MENU_X, MY=MENU_Y, MROW=MENU_ROW, MW=MENU_W, MH=MENU_H;
         glColor4f(0.05f, 0.07f, 0.11f, 0.82f);
         glBegin(GL_QUADS);
           glVertex2f((float)MX,(float)MY);          glVertex2f((float)(MX+MW),(float)MY);
@@ -582,7 +1233,14 @@ static void draw(HDC hdc) {
         glEnd();
         int mr=0;
         #define MROWY (MY + 6 + (mr++)*MROW)
-        draw_text(MX+8, MROWY, 0.55f, 0.90f, 1.0f, "COOP WORKBENCH by BAYNEBUILD  " COOP_VERSION "  EXPERIMENTAL");
+        // Build stamp on screen, not just in the log: several builds can share a version within one session,
+        // and "which DLL am I actually running" has cost real testing time.
+        { static char s_title[128]; static bool s_made = false;
+          if (!s_made) { const char hhmm[] = COOP_BUILD_HHMM;
+              _snprintf_s(s_title, sizeof s_title, _TRUNCATE,
+                          "COOP WORKBENCH by BAYNEBUILD  %s b%s  EXPERIMENTAL", COOP_VERSION, hhmm);
+              s_made = true; }
+          draw_text(MX+8, MROWY, 0.55f, 0.90f, 1.0f, s_title); }
         const bool live = InterlockedCompareExchange(&g_net_ok,0,0)!=0;
         if      (!g_peerid) draw_text(MX+8, MROWY, 1.0f,0.70f,0.30f, "Link:    no partner set");
         else if (live)      draw_text(MX+8, MROWY, 0.3f,1.00f,0.50f, "Link:    LIVE");
@@ -705,8 +1363,25 @@ static BOOL WINAPI my_SwapBuffers(HDC hdc) {
                         g_slot = slot; g_ready = true;
                         logline("uniform hook installed (chaining to %p)", (void*)g_next_um4);
                     }
-                } else { logline("could not find the cached glUniformMatrix4fv pointer - is another probe loaded?");
-                         InterlockedExchange(&g_stop, 1); }
+                } else {
+                    // RETRY, and NEVER stop the overlay over this. Injected into a running game the engine
+                    // has long since cached this pointer and the first attempt succeeds. Loaded by an ASI
+                    // loader we get here on the FIRST FRAME, before the game has drawn anything with a
+                    // shader, so the pointer does not exist yet - and setting g_stop killed the entire
+                    // overlay, menu included, for the whole session. That is what "no F6 overlay under ASI"
+                    // was.
+                    // Losing this hook costs only the PARTNER CAMERA MARKER, which needs the view matrix.
+                    // The menu, the sync banner and the cursor do not, so they must keep working.
+                    static long tries = 0;
+                    if (++tries == 1)
+                        logline("glUniformMatrix4fv not cached yet (normal at game start) - retrying per frame");
+                    else if (tries == 1800) {
+                        logline("glUniformMatrix4fv never appeared after 1800 frames - partner CAMERA marker "
+                                "disabled; menu, banner and cursor still work");
+                        g_um4_gave_up = true;
+                    }
+                }
+                if (!g_ready && !g_um4_gave_up) { InterlockedDecrement(&g_inhook); return g_orig_swap(hdc); }
                 load_cfg(); g_cfg_last = GetTickCount();
             }
             g_frames++;
@@ -720,12 +1395,17 @@ static BOOL WINAPI my_SwapBuffers(HDC hdc) {
             static SHORT prevH = 0; SHORT nowH = GetAsyncKeyState(VK_F10);   // F10 = show/hide the HUD readouts
             if ((nowH & 0x8000) && !(prevH & 0x8000)) InterlockedExchange(&g_hud, !g_hud);
             prevH = nowH;
+            log_view_keys();                                                 // F8 = in-game log
             static SHORT prevM = 0; SHORT nowM = GetAsyncKeyState(VK_F6);    // F6 = show/hide the coop menu
             if ((nowM & 0x8000) && !(prevM & 0x8000)) InterlockedExchange(&g_menu, !g_menu);
             prevM = nowM;
             // live offset nudge - drive the lattice onto the craft instead of guessing the
             // body transform. Only while the game has focus, so we never eat someone else's keys.
-            if (GetForegroundWindow() == WindowFromDC(hdc)) {
+            // CALIBRATION KEYS - only while the F10 calibration HUD is actually up. They used to be live at
+            // all times, which collided with everything: the arrows and PgUp/PgDn are the log viewer's scroll
+            // keys, F8 opens the log, and F7 - the whole-craft PULL - also teleported the lattice on every
+            // press. Tying them to the HUD that displays their result is both the fix and the obvious rule.
+            if (InterlockedCompareExchange(&g_hud, 0, 0) && GetForegroundWindow() == WindowFromDC(hdc)) {
                 // Rate is per SECOND, not per frame. At ~200fps a per-frame step flew off
                 // the map instantly; this is frame-rate independent.
                 static DWORD s_last = 0;
@@ -829,6 +1509,10 @@ typedef void     (*closeSession_t)(void*, const void*);
 static sendToUser_t    p_send    = nullptr;
 static recvOnChannel_t p_recv    = nullptr;
 static acceptSession_t p_accept  = nullptr;
+// File scope, not locals in net_init: wsdraw_set_peer needs them to build the identity when the partner is
+// discovered AFTER init (auto-connect).
+static identClear_t    p_identClear = nullptr;
+static identSetID_t    p_identSetID = nullptr;
 static msgRelease_t    p_release = nullptr;
 static closeSession_t  p_close   = nullptr;
 static void*    g_net = nullptr;
@@ -855,7 +1539,8 @@ struct CursorMsg {                               // kind 3 = hovered voxel (part
 // SOLO SELF-TEST (F8): replay OUR OWN cursor back as the "partner" cursor, delayed ~1s, so the whole
 // capture -> voxel -> world -> render path can be validated on ONE machine (same trick as the old delayed
 // camera ghost). Purely local - no network involved; the wire hop is already proven by the camera pose.
-extern "C" volatile long g_cursor_selftest = 0;   // toggled by F8 in coop.cpp's key handling
+extern "C" volatile long g_cursor_selftest = 0;   // RETIRED - the partner cursor is confirmed on two
+                                                  // machines, so nothing fakes a partner any more.
 #define CURBUF 128
 static struct { DWORD t; int vx,vy,vz; } g_curbuf[CURBUF];
 static int g_curbuf_n = 0;
@@ -871,8 +1556,8 @@ static bool steam_init() {
     p_accept  = (acceptSession_t)GetProcAddress(s, "SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser");
     p_release = (msgRelease_t)   GetProcAddress(s, "SteamAPI_SteamNetworkingMessage_t_Release");
     p_close   = (closeSession_t) GetProcAddress(s, "SteamAPI_ISteamNetworkingMessages_CloseSessionWithUser");
-    auto pClear = (identClear_t) GetProcAddress(s, "SteamAPI_SteamNetworkingIdentity_Clear");
-    auto pSetID = (identSetID_t) GetProcAddress(s, "SteamAPI_SteamNetworkingIdentity_SetSteamID64");
+    auto pClear = p_identClear = (identClear_t) GetProcAddress(s, "SteamAPI_SteamNetworkingIdentity_Clear");
+    auto pSetID = p_identSetID = (identSetID_t) GetProcAddress(s, "SteamAPI_SteamNetworkingIdentity_SetSteamID64");
     if (!pNet||!p_send||!p_recv||!p_accept||!p_release||!pClear||!pSetID||!pUser||!pGetID) {
         logline("net: missing steam exports - peer camera disabled"); return false;
     }
@@ -889,13 +1574,31 @@ static bool steam_init() {
         char t[64] = {0}; if (fgets(t, sizeof t, pf)) { uint64_t v = _strtoui64(t, nullptr, 10); if (v) g_peerid = v; }
         fclose(pf);
     }
-    g_coop_present = (GetModuleHandleA("coopworkbench.dll") != nullptr);
+    // wsdraw.cpp is compiled INTO the same binary as coop, so this is really "is coop in this process" -
+    // and it is always true. Asking by FILENAME breaks under an ASI install, where the module is called
+    // coopworkbench.asi: both lookups return null, and the send-error path below then closes the shared
+    // per-identity Steam session, which the comment there calls catastrophic. Ask the linker, not the file.
+    g_coop_present = true;
     logline("net: our=%llu peer=%llu channel=%d coopworkbench.dll=%s %s",
             (unsigned long long)g_myid, (unsigned long long)g_peerid, WS_CHANNEL,
             g_coop_present ? "present (will NOT close sessions)" : "absent",
             g_peerid ? "" : "(no coop-peer.txt -> no partner configured)");
     if (g_peerid) { pClear(g_peerIdent); pSetID(g_peerIdent, g_peerid); p_accept(g_net, g_peerIdent); }
     return true;
+}
+
+// Late peer adoption. The overlay used to learn the partner ONLY from coop-peer.txt at init, so an
+// auto-connected session (which discovers the partner a moment AFTER inject, and where the launcher has
+// deliberately emptied coop-peer.txt) left the overlay on peer=0 forever: HUD stuck on "Partner: none",
+// no partner camera, no partner cursor - while coop's own sync worked, which is exactly the confusing
+// half-working state seen in the 2026-07-30 two-machine test. coop::adopt_peer now calls this.
+// Idempotent, and never overrides an id we already have (coop applies the same rule).
+extern "C" __declspec(dllexport) void wsdraw_set_peer(unsigned long long id) {
+    if (!id || id == g_myid || g_peerid) return;
+    g_peerid = id;
+    if (p_identClear && p_identSetID && p_accept && g_net) { p_identClear(g_peerIdent); p_identSetID(g_peerIdent, g_peerid); p_accept(g_net, g_peerIdent); }
+    logline("net: partner adopted late (auto-connect) -> peer=%llu, camera/cursor link enabled",
+            (unsigned long long)g_peerid);
 }
 
 static void net_send_pose() {
@@ -925,7 +1628,7 @@ static void net_send_pose() {
     // Session-close is CATASTROPHIC if coopworkbench.dll shares this per-identity session, so re-check coop
     // presence LIVE at the close site (the init-time latch goes stale when coop is injected/unloaded
     // after us). Cheap: only runs on the error branch. Err toward never-closing when coop may be up.
-    bool coop_now = g_coop_present || (GetModuleHandleA("coopworkbench.dll") != nullptr);
+    bool coop_now = g_coop_present;   // same binary - see the note in net_init
     if ((rc == 35 || rc == 3) && p_close && !coop_now) {
         p_close(g_net, g_peerIdent); InterlockedExchange(&g_net_ok, 0);
     }
@@ -973,7 +1676,7 @@ static void cursor_selftest_tick() {
 static DWORD WINAPI net_worker(LPVOID) {
     int tick = 0;
     while (!InterlockedCompareExchange(&g_want_exit, 0, 0) && !InterlockedCompareExchange(&g_stop, 0, 0)) {
-        cursor_selftest_tick();                              // solo F8 mode (no network)
+        // (the solo cursor self-test is retired - see coop.cpp; the marker is confirmed on two machines)
         if (g_net && g_peerid) {
             if (p_accept) p_accept(g_net, g_peerIdent);      // accept inbound (idempotent)
             net_send_pose();                                 // ~20 Hz below
@@ -1075,7 +1778,15 @@ static DWORD WINAPI boot(LPVOID) {
         VirtualProtect(g_iat_swap, sizeof(void*), o, &o);
         logline("SwapBuffers hooked - orange lattice = voxels 0..%d, red cross = craft origin", g_span);
     }
-    if (steam_init()) { g_net_worker = CreateThread(nullptr, 0, net_worker, nullptr, 0, nullptr); }
+    // RETRY, like coop's own steam_init does. This is a SEPARATE copy with its own single attempt, and it
+    // survives today only by ordering - overlay_start() runs after coop's 60s retry loop has already
+    // succeeded. That is incidental, not a guarantee: if coop's loop ever times out (slow disk, big mod
+    // list, ASI load), this would fail permanently and the partner camera and cursor would never appear,
+    // with only a log line to show for it.
+    { bool ok = false;
+      for (int i = 0; i < 300 && !ok; i++) { ok = steam_init(); if (!ok) Sleep(100); }
+      if (ok) g_net_worker = CreateThread(nullptr, 0, net_worker, nullptr, 0, nullptr);
+      else logline("net: steam never became ready (30s) - partner camera/cursor disabled for this session"); }
     return 0;
 }
 

@@ -100,36 +100,57 @@ If you try it somewhere new, [**opening an issue**](../../issues) with your resu
 broke, **both players' `coopworkbench-log.txt`** (with SteamIDs removed) — is the single most useful
 thing you can contribute right now.
 
+## Recently
+
+Active development — the last few builds changed the setup completely:
+
+- **No injector any more.** Run `install.bat` once and the mod loads with the game, every launch. That
+  replaces the old per-session injection *and* the Windows Defender warning that came with it.
+- **Automatic pairing.** If you're Steam friends and you both have it installed, you're connected — no
+  SteamID64s, no `coop-peer.txt`, nothing to configure.
+- **Startup display.** The mod shows what it's doing as the game loads, so you can see it working and tell
+  at a glance if something failed.
+- **Stuck warning markers fixed.** The yellow icons that piled up after a craft sync were the game's own
+  "incomplete connection" warnings being duplicated on every load. Found and fixed.
+- **A memory leak fixed** in the whole-craft pull — every sync had been leaking the previous craft.
+- **Component settings now sync live** — sliders, names, logic constants and microcontroller internals.
+  This was the biggest gap the README has admitted since the first release. **Solo-tested only so far**: if
+  a setting doesn't appear on your partner's screen, press `F7`. To turn it off, create a file called
+  `coop-noprops.txt` next to the mod.
+
+> Much of this is **solo-tested only**. The install, the marker fix and the startup display have been
+> verified on one machine; the newer sync work has not yet had a two-machine session. Please report anything
+> odd — both players' `coopworkbench-log.txt` (with SteamIDs removed) is the most useful thing you can send.
+
 ## Known limitations — what doesn't work yet
 
 It's **alpha**. Plenty is still missing or in progress:
 
-### ⚠️ The big one: component settings and microcontrollers need a **resync**
+### ⚠️ Two severe bugs worth knowing before you build anything you care about
 
-Live sync covers **geometry** — placing, deleting, painting, rotating, wiring. It does **not** cover most
-**per-component internal settings**:
+**A microcontroller placed by your partner arrives wrong.** Not merely empty — it arrives carrying
+*whatever microcontroller you currently have selected*, at that one's size. Press `F7` after either of you
+places one, and don't build against a microcontroller's faces until you have, or everything placed there
+will be misaligned. Known cause, fix in progress.
 
-- **Microcontrollers** — their internal logic and custom size
-- **Part settings** — sliders, logic-constant values, names, seat/display configuration
-- (Battery **charge level** is the exception — that one does sync live.)
+**A craft pulled with `F7` can land offset** from where it should be. The root cause is now understood — a
+craft's position is three separate fields and the game *reconstructs* one of them on load, which we weren't
+doing — and the fix is in, but it has not yet been confirmed with a real partner.
 
-Change a microcontroller's internals and **your partner will not see it happen.** They carry across only
-when someone does a **full-craft resync** — press **F7**, or re-enter the bench as `JOIN PARTNER` — which
-pulls the partner's whole craft, settings and all.
+### ⚠️ Component settings sync, but it is new
 
-So the working pattern today is: **build together live, and resync after doing internals work.** Making
-those changes stream live is the single biggest item on the roadmap.
+Sliders, names, logic constants and microcontroller internals now stream live. This has been verified end to
+end on **one machine** and has never run between two. If something doesn't appear, `F7` still pulls the
+partner's whole craft, settings and all — that remains the cure for any desync.
+
+Turn it off by creating `coop-noprops.txt` next to the mod.
 
 ### Other known limitations
 
 - **Both players must use the same workbench type.** Bench build volumes differ (the starter bench is
   30×30×60 voxels; some are 146×40×140), so a block that fits one won't fit the other. Mismatches are
   detected and sync is **blocked on purpose**, with a warning in the overlay.
-- **No auto-connect yet.** You still exchange SteamID64s by hand (`coop-peer.txt`). Automatic partner
-  discovery is in progress.
-- **Stuck warning markers.** Yellow warning icons can pile up on screen during a session, pinned to the
-  screen rather than the world. They're **cosmetic** — quitting to the menu clears them — and it isn't yet
-  confirmed whether they're caused by the mod at all.
+- **Two players only**, and **Windows only**.
 - **One crash seen when copying a part** on a freshly pulled craft. A fix is in, but it hasn't been
   reproduced or confirmed since — [report it](../../issues) if you hit it.
 - **Not all wire types verified.** Electric *and* on/off-logic wires sync (including **disconnects**);
@@ -145,22 +166,40 @@ All of this is on the [roadmap](ROADMAP.md) — help is very welcome.
 
 ## Quick start
 
-1. Both players: install Steam + Stormworks and launch the game.
-2. Grab the [latest release](../../releases), unzip it, and both run **`inject.bat`**. It prints *your*
-   SteamID64 and asks for your *partner's* — paste it in.
+1. Both players: grab the [latest release](../../releases), unzip it, and run **`install.bat`**. It finds
+   your Stormworks folder, shows exactly the two files it will copy, and asks before writing anything.
+2. Both launch Stormworks normally. **That's it** — the mod loads with the game, every time. You'll see it
+   start up on the loading screen. If you're Steam friends and you both have it installed, you pair
+   **automatically**: no SteamIDs, nothing to configure.
 3. Both walk up to a workbench — **the same type on both machines** (easiest: the starter bench) — and
    open it with **`E`** for co-op. `Q` opens it solo, syncing nothing.
 4. Start building. Whoever entered first is the source of truth; if your partner is already in there, your
    prompt says **`JOIN PARTNER`** and entering pulls their craft across automatically.
-5. After anyone edits **microcontroller internals or part settings**, press **F7** to resync — those don't
-   stream live yet (see [limitations](#️-the-big-one-component-settings-and-microcontrollers-need-a-resync)).
+5. If anything ever looks out of step, press **F7** — it pulls your partner's whole craft, settings and
+   all, and is the cure for any desync.
+
+**Prefer not to run a script?** The installer only copies two files and you can do it by hand: drag
+`dinput8.dll` next to `stormworks64.exe` (Steam → right-click Stormworks → Manage → Browse local files),
+make a `plugins` folder there if it doesn't exist, and drag `coopworkbench.asi` into it. That is exactly,
+and only, what `install.bat` does. To uninstall either way, delete those two files.
+
+### Keys
+
+| | |
+|---|---|
+| `F7` | load your partner's craft (press twice if you have local work to lose) |
+| `F6` | overlay / status panel |
+| `F8` | in-game log — `PgUp`/`PgDn` scroll, `Home`/`End` jump, `F2` filter |
+| `F9` | world overlay on/off |
+| `F10` | calibration HUD (and only then do the arrow keys nudge the overlay) |
+| `F4` `F5` | **developer** load/save a craft to file — each is a full craft reload, so avoid them during a real session |
+
+Three optional files, created by you next to the mod, change behaviour: `coop-peer.txt` (a partner's
+SteamID64, to pair manually instead of automatically), `coop-autoconnect-off.txt`, and `coop-noprops.txt`.
 
 Full step-by-step + a feature-by-feature checklist:
 [`coop-package/README.txt`](sw-coop-build/coop-package/README.txt) and
 [`coop-package/TESTING.txt`](sw-coop-build/coop-package/TESTING.txt).
-
-> Windows Defender or your antivirus may warn about the injector — it uses `LoadLibrary` to load the
-> mod DLLs into the running game. The source for everything it loads is in this repo.
 
 ## Build from source
 
@@ -170,7 +209,9 @@ Requires the **MSVC x64 build tools** (VS2022 Build Tools) with `ml64` (MASM). F
 build-coop.cmd
 ```
 
-Then load it into the running game with `inject.ps1`. During development, `reload-build.ps1` unloads
+For a quick dev loop you can still load it into a running game with `inject.ps1`; the shipped install
+is the ASI path above. `build-check.ps1` compiles without touching a live session. During development,
+`reload-build.ps1` unloads
 the live mod and rebuilds so you can re-load without restarting the game. Architecture and hook map:
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 

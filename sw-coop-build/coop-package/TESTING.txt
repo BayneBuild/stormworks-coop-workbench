@@ -1,135 +1,142 @@
 ======================================================================
-  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench  v0.2.2-alpha  EXPERIMENTAL
+  TWO-MACHINE TEST CHECKLIST  -  Coop Workbench  v0.5.0-alpha  EXPERIMENTAL
 ======================================================================
 
->>> READ THIS FIRST (v0.2.0) <<<
- 1. BOTH players must use the SAME WORKBENCH TYPE. Bench sizes differ (the starter bench is 30x30x60
-    voxels, some are 146x40x140) and a block that fits one does not fit the other. If they differ the mod
-    now BLOCKS sync on purpose and the overlay shows "!! WRONG BENCH - SYNC BLOCKED".
- 2. OPEN THE BENCH WITH  E  (CO-OP). Pressing Q opens it in SOLO and nothing will sync - that is deliberate.
-    The prompt tells you which you are about to do:
-        [E] START CO-OP    = you are first in, YOUR craft is the source of truth
-        [E] JOIN PARTNER   = they were already building, so joining PULLS their whole craft over yours
- 3. Set coop-peer.txt manually on both machines (exchange SteamID64s). AUTO-CONNECT DOES NOT WORK YET -
-    it is off by default; ignore it for this test.
- 4. Both machines must run the SAME build. The overlay header shows the version -
-    "COOP WORKBENCH by BAYNEBUILD  v0.2.0  EXPERIMENTAL". Check they match before starting.
- 5. If anything looks wrong, grab coopworkbench-log.txt (and wsdraw-log.txt) from BOTH sides. Remove the
-    17-digit SteamID64s before sharing.
-
-NEW IN v0.2.0 - worth testing specifically:
- [ ] Just OPENING the bench arms the mod (no "place a block first" step any more).
- [ ] E vs Q chooses co-op vs solo; the prompt text changes to START CO-OP / JOIN PARTNER as your partner
-     enters their bench.
- [ ] JOINING (partner already in the bench) automatically pulls their whole craft, with a centre-screen
-     "SYNCING WITH PARTNER" progress banner. Any failure shows a red "SYNC FAILED" with the reason.
- [ ] Leave the bench and come back while your partner keeps building - you should re-sync, not desync.
- [ ] Your partner's camera marker only shows while they are IN the bench (walking around, it disappears).
- [ ] PARTNER CURSOR - an orange box on the exact cell your partner is hovering, matching their camera
-     colour. Move your mouse around the craft and have them confirm the box follows it, on the right cell.
-     (Do NOT press F8 during this test - that is a solo self-test mode which overwrites the partner's
-     cursor with a delayed copy of your own.)
-
-======================================================================
-Two players (A and B) build the same craft live over Steam. This build adds
-two big things since last time:
-
-  * AUTO-ARM  - you no longer place a block to "wake up" the mod. Just being
-                in the vehicle workbench arms it automatically.
-  * F7 PULL   - "load partner's craft": press F7 and YOUR craft is replaced
-                with whatever your partner currently has on screen (their
-                whole build - blocks, colours, wires, microcontrollers,
-                properties). Only YOUR side changes; your partner is never
-                overwritten.
-
-KEYS (in the workbench):
-  F7  load partner's craft (pull)      F6  hide/show the on-screen menu
-  F5  save your craft to a file        F9  overlay on/off
-  F4  load that saved file             F10 overlay calibration readouts
+A two-machine session is the scarcest thing this project has. A lot is built
+and waiting on one, so this list is ORDERED so nothing invalidates anything
+later. Please work down it in order.
 
 ----------------------------------------------------------------------
-0. PREP (both machines)
+READ THIS FIRST - four rules, each of which silently voids a test
 ----------------------------------------------------------------------
-[ ] Both on Steam, Stormworks running, SAME base game + SAME mods installed.
-[ ] Both extracted this whole folder (coopworkbench.dll + the scripts) to e.g.
-    the Desktop (do NOT run from inside the .zip).
-[ ] Tested only in CUSTOM gamemode at the starter workbench so far. Please use
-    that (Custom -> the default starter workbench) for this test.
+ 1. DO TEST 3 BEFORE EITHER PLAYER PLACES ANYTHING. It only exercises the code
+    path being tested while neither side has placed a block yet. One local
+    placement changes that path for the whole session, and it cannot be redone
+    without restarting the game.
+
+ 2. MOVE THE CRAFT BEFORE TESTING THE F7 POSITION (test 8). Last time both
+    machines had a zero offset, so there was nothing to carry and the test
+    proved nothing. Slide the craft to a DIFFERENT spot on each machine first.
+
+ 3. DO NOT PRESS F4, F5 OR NUMPAD-* AT ANY POINT. Each reloads the whole craft.
+    They are developer paths, not co-op ones, and they will confuse every
+    result after them.
+
+ 4. BOTH MACHINES MUST BE ON THE SAME BUILD. Press F6 and compare the version
+    AND the build stamp (e.g. "v0.5.0-alpha b0117"). Two builds made minutes
+    apart look identical without the stamp - this has already cost several
+    test rounds.
+
+Also worth knowing before you start:
+  - F7 asks TWICE if you have local work to lose. That is deliberate.
+  - Component settings apply when you CLOSE the properties panel, not while it
+    is open. A couple of seconds' delay there is by design.
 
 ----------------------------------------------------------------------
-1. CONNECT
+0. PREP  (both machines)
 ----------------------------------------------------------------------
-[ ] Both: open the vehicle workbench (an empty starter craft is fine).
-[ ] Both: run inject.bat. It prints YOUR SteamID64 - exchange them.
-[ ] Both: paste the PARTNER's SteamID64 when asked (each other's, not your own).
-[ ] Both: check coopworkbench-log.txt shows within a few seconds:
-      '*** SESSION ACCEPTED ***' or '*** LINK LIVE ***'
-      'AUTO-ARMED (passive, bench open)'   <- arms by itself, no block needed
-      'net: *** peer camera link LIVE ***' once the partner is in the bench.
-
-If the link never goes live: re-check both SteamIDs, that Steam is running, and
-that neither is blocked by a firewall.
+[ ] Both: run install.bat, then launch Stormworks. No injector, nothing to run
+    per session.
+[ ] Both: watch the loading screen - the mod's startup panel should appear and
+    tick through its steps. If it does not, stop and send the log.
+[ ] Both: SAME base game version, SAME workshop part mods (if any).
+[ ] Both: CUSTOM gamemode, at the SAME workbench type. Bench sizes differ and
+    the mod will deliberately block sync if they do not match.
+[ ] Agree who is A and who is B, and keep it that way in your notes.
 
 ----------------------------------------------------------------------
-2. LIVE EDIT TESTS  (do the action on A, verify it appears on B)
+1. PAIRING
 ----------------------------------------------------------------------
-[ ] SINGLE PLACE   A places one block            -> appears on B.
-[ ] DRAG / AREA    A drags a line, then a big fill -> all appear on B, none missing.
-[ ] SHAPES         A drags a beam of wedges / a pyramid -> B shows it clean
-                   (no sawtooth, no flipped rows).
-[ ] ROTATION       A places a rotated block       -> B matches the orientation.
-[ ] DELETE         A erases a block (eraser)       -> removed on B instantly.
-[ ] PAINT WHOLE    A paints a whole block          -> B shows the new colour.
-[ ] PAINT FACE     A paints ONE face               -> B recolours that same face only.
-[ ] CONNECT        A wires two nodes (electric power, and a logic on/off)
-                   -> the wire appears on B; spawn it in and confirm it powers.
-[ ] DISCONNECT     A removes a wire                -> it disappears on B.
-[ ] BATTERY %      A sets a battery's charge slider -> B's battery charge matches.
-
-Note: a remote block PLACE needs the placer to have made ONE local placement
-first (to capture the block template). Everything else above - delete, paint,
-wires, battery %, and the F7 pull - works the instant you're in the bench.
+[ ] Neither player types a SteamID anywhere.
+[ ] Both: F6 - the panel should show a partner within a few seconds of both
+    being in-game.
+    Expect in the log:  'auto-connect: adopted peer'  /  '*** LINK LIVE ***'
+[ ] If it never pairs: check you are Steam FRIENDS, and that Steam privacy is
+    not hiding game details - that blocks the discovery beacon silently.
 
 ----------------------------------------------------------------------
-3. FULL-CRAFT PULL  (the headline - F7)
+2. BENCH IDENTITY
 ----------------------------------------------------------------------
-[ ] B builds something distinctive (a few blocks; ideally include a
-    microcontroller and a battery so we can check those transfer).
-[ ] A presses F7.  ->  A's craft is REPLACED with B's craft, rendered instantly.
-    Log on A: '[pull] <<< chunk ... (n/total)' then
-              '[snap] load+render DONE: N body(s), M node(s) remeshed'.
-    Log on B: '[pull] <<< peer requested our craft' then '[pull] craft sent'.
-[ ] Check on A: the pulled craft matches B's - blocks, colours, wires, and (if
-    present) the microcontroller's internals + the battery's charge/name.
-[ ] Swap: B presses F7 and gets A's craft.
-
-This is a REPLACE, so press F7 when you actually want your partner's build (it
-overwrites your current one on your side only).
+[ ] Both at the SAME bench type            -> sync allowed.
+[ ] Deliberately try DIFFERENT bench types -> sync REFUSED, with an on-screen
+    message saying so. That is the guard working, not a failure.
+[ ] Return to matching benches for everything below.
 
 ----------------------------------------------------------------------
-4. OVERLAY  (partner-camera marker)
+3. FIRST BLOCK EACH WAY   *** DO THIS BEFORE ANY OTHER BUILDING ***
 ----------------------------------------------------------------------
-[ ] Both in the workbench. A moves/orbits the camera -> on B a cyan "PARTNER"
-    frustum tracks where A is looking (and vice-versa).
-[ ] F9 hides/shows the overlay; F6 hides/shows the top-left status menu.
-[ ] The overlay never blocks building - sync must keep working regardless.
+The single most important untested thing. Neither of you has placed anything.
+[ ] A places ONE block  -> appears on B, in the right place, immediately.
+[ ] B places ONE block  -> appears on A, in the right place, immediately.
+If either is lost or lands wrong, note it and carry on - that result is the
+point of the whole session.
 
 ----------------------------------------------------------------------
-5. IF SOMETHING FAILS  (this is the most useful part!)
+4. CORE EDITS   (do on A, verify on B; then swap)
 ----------------------------------------------------------------------
-Please grab coopworkbench-log.txt from BOTH machines at the moment it failed and
-note which step. REMOVE the SteamID64s from the log before sharing (find/replace
-the 17-digit numbers). A wsdraw-log.txt may also be present - send both if so.
+[ ] SINGLE PLACE   one block                -> appears.
+[ ] DRAG / AREA    a line, then a big fill  -> all appear, none missing.
+[ ] SHAPES         wedges / pyramids        -> correct shape, no sawtooth.
+[ ] ROTATION       a rotated block          -> same orientation.
+[ ] COLOUR         a coloured block         -> same colour.
+[ ] PAINT          repaint a block, then ONE FACE of it -> both carry.
+[ ] DELETE         single delete, then drag-erase a row -> all removed.
+[ ] SYMMETRY       place with symmetry on   -> both sides appear.
+[ ] WIRES          connect electric, connect logic, then DISCONNECT one.
+[ ] BATTERY        change a battery's charge -> carries over.
 
-Useful log markers:
-  >>> SEND / <<< APPLIED     an edit left / arrived
-  [pull] >>> / [pull] <<<    craft chunks sent / received
-  [snap] load+render DONE    a pulled craft rebuilt successfully
-  AUTO-ARMED (passive...)    the mod armed on its own
-  no forge template yet      a remote place before the placer's first placement
-  UNKNOWN def '...'          the receiver is missing that mod/part
-  ... EXC / EXCEPTION        something faulted (includes context)
+----------------------------------------------------------------------
+5. MOVE TOOL
+----------------------------------------------------------------------
+[ ] A slides the whole craft -> B sees it move.
+    Never tested cross-machine. If it does not work, note it and carry on.
 
-Thanks for testing - this is my first mod and first public project, and real
-two-machine feedback is what moves it forward. Both sides' logs are gold.
-======================================================================
+----------------------------------------------------------------------
+6. COMPONENT SETTINGS   (new - works solo, never tried with a partner)
+----------------------------------------------------------------------
+[ ] A renames a dial, closes the panel -> B's dial takes the name.
+[ ] A changes a dial's min/max         -> B matches.
+[ ] A edits a microcontroller's internals, closes the editor -> B matches.
+    This is the big one. MC blobs are large and this is their first real
+    outing; if anything here fails, expect it to be this.
+[ ] Note roughly how long each takes to appear.
+
+----------------------------------------------------------------------
+7. LEAVING, JOINING, PRESENCE
+----------------------------------------------------------------------
+[ ] E vs Q: opening the bench with E is CO-OP, Q is SOLO. Confirm the prompt
+    text matches what you are about to do, on both machines.
+[ ] B leaves the bench while A keeps building -> A's sync pauses, no errors.
+[ ] B returns -> B catches up automatically, without pressing anything.
+[ ] B leaves and re-enters as JOIN PARTNER -> B pulls A's whole craft, with a
+    progress banner. A failure should show a red reason, never fail silently.
+
+----------------------------------------------------------------------
+8. F7 WHOLE-CRAFT PULL   *** move the craft first - see rule 2 ***
+----------------------------------------------------------------------
+[ ] A moves their craft to one spot; B moves theirs to a DIFFERENT spot.
+[ ] B presses F7 (twice, to confirm) -> A's craft arrives on B.
+       -> Does it land in the RIGHT PLACE?   <- the open bug we are hunting
+       -> Are wires, microcontrollers and settings intact?
+       -> Any yellow warning icons left on screen afterwards?
+[ ] Then the other direction: A presses F7 -> B's craft arrives on A.
+[ ] Whatever happens, grab the log line starting '[snap] poff' from BOTH
+    machines. That line is the answer to the position question.
+
+----------------------------------------------------------------------
+9. CAPTURE THE GIF   *** do not end the session without this ***
+----------------------------------------------------------------------
+[ ] Record 5-10 seconds of both screens: one player building, the other screen
+    filling in live. Split-screen, or two windows side by side.
+It is the single best answer to "is this real", it costs nothing while two
+machines are already running, and it cannot be recreated afterwards.
+
+----------------------------------------------------------------------
+AFTERWARDS
+----------------------------------------------------------------------
+[ ] Send coopworkbench-log.txt AND wsdraw-log.txt from BOTH machines, plus
+    coopworkbench-CRASH.txt if one appeared. Remove the 17-digit SteamID64s.
+[ ] Note what each of you SAW, separately. "It didn't sync" is usually two
+    different stories on the two screens, and the difference is the clue.
+[ ] You can read the log in-game with F8 (PgUp/PgDn scroll, F2 to filter to
+    errors) - usually faster than finding the file.

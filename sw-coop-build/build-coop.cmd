@@ -22,4 +22,7 @@ ml64 /nologo /c /Fo hook_dll\detour_interact.obj hook_dll\detour_interact.asm
 if errorlevel 1 ( echo [build] ASM9 FAILED & exit /b 1 )
 cl /nologo /LD /EHa /O2 /Fe:coopworkbench.dll hook_dll\coop.cpp hook_dll\wsdraw.cpp hook_dll\detour_detect.obj hook_dll\detour_add.obj hook_dll\detour_del.obj hook_dll\detour_delarm.obj hook_dll\detour_dragarm.obj hook_dll\detour_factory.obj hook_dll\detour_conn_add.obj hook_dll\detour_appstate.obj hook_dll\detour_interact.obj
 if errorlevel 1 ( echo [build] COMPILE FAILED & exit /b 1 )
-echo [build] OK
+rem An .asi IS a DLL - Ultimate-ASI-Loader just LoadLibrary's every .asi in the plugins folder, so the same
+rem binary and the same DllMain serve both install methods. Ship a copy under the extension the loader wants.
+copy /Y coopworkbench.dll coopworkbench.asi >nul
+echo [build] OK (coopworkbench.dll + coopworkbench.asi)

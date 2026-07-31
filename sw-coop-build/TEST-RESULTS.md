@@ -308,3 +308,41 @@ Both machines: extract `stormworks-coop.zip`, open the workbench from the **same
 the **same origin spot**, run `inject-both.bat`, exchange SteamID64s. Full checklist:
 [`coop-package/TESTING.txt`](coop-package/TESTING.txt). Overlay details:
 [`WORLD-SPACE-OVERLAY.md`](WORLD-SPACE-OVERLAY.md).
+
+---
+
+## 2026-07-30 — two-machine test #3 (auto-connect). Partner: friend B.
+
+Both on `v0.2.2-alpha (built Jul 27 2026 08:23:51)`. Reported as "connection success but nothing synced";
+the logs show something more useful than that.
+
+| Area | Result |
+|---|---|
+| Steam rich-presence auto-connect | **PASS** — both machines paired with zero manual SteamID entry |
+| Overlay partner link in an auto-connected session | **FAIL** — overlay stayed on peer=0 (fixed) |
+| First inbound block, each direction | **FAIL** — dropped; everything after it synced (fixed) |
+| Bench fingerprint + match | **PASS** — both 30x30x60, matched automatically |
+| Presence (partner ENTERED / LEFT) | **PASS** |
+| First-in-is-source-of-truth auto JOIN + full pull | **PASS** — fired and pulled without being asked |
+| Whole-craft pull content | **PASS** |
+| Whole-craft pull *position* | **FAIL** — craft lands displaced in the receiver's bench (still open) |
+
+Detail and root causes: `FINDINGS.md` §22.
+
+**Headline:** rich presence transmits between friends. That was the unknown gating drag-and-drop install
+(no SteamID step) — it is now answered and the pairing key is exact: only machines running the mod
+advertise `swcoop`.
+
+**The "nothing synced" report was two separate bugs wearing one coat.** The overlay half of the DLL read
+`coop-peer.txt` only at init and the auto-connect launcher empties that file, so the HUD said "Partner:
+none" and the partner camera/cursor never came up — while sync itself was connected and working. Then the
+first block each way was genuinely lost to the forge-template gate. Together they looked like a dead link.
+
+### Fixed since (in the build, awaiting a two-machine confirm)
+- `wsdraw_set_peer()` — the overlay now learns a peer discovered after init.
+- Deferred-place queue — inbound places with no forge template are held and replayed, never dropped.
+- Passive template capture — the mod learns where the placement struct lives (`coop-template-off.txt`) so
+  **no local placement is needed at all** after the first one ever. Solo-testable.
+- Roster auto-connect now requires the `swcoop` beacon before pairing (it previously took an arbitrary
+  friend in the session — latent, would misfire with 3+ players).
+- `[posprobe]` diagnostic to locate the field displacing a pulled craft.
