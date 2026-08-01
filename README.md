@@ -110,7 +110,7 @@ Active development — the last few builds changed the setup completely:
 
 - **No injector any more.** Run `install.bat` once and the mod loads with the game, every launch. That
   replaces the old per-session injection *and* the Windows Defender warning that came with it.
-- **Automatic pairing.** If you're Steam friends and you both have it installed, you're connected — no
+- **Automatic pairing.** If you're Steam friends and you both have it installed, you should pair — no
   SteamID64s, no `coop-peer.txt`, nothing to configure.
 - **Startup display.** The mod shows what it's doing as the game loads, so you can see it working and tell
   at a glance if something failed.

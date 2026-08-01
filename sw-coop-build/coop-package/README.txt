@@ -109,7 +109,10 @@ TESTED SETUP / LIMITS - please read
     - COMPONENT SETTINGS. Sliders, names and logic constants now sync
       live. This is new and has not yet been run with a real partner.
       If a setting does not appear, press F7.
-    - Automatic pairing, the installer, and the move tool.
+    - AUTOMATIC PAIRING. It has found a partner, but a bug meant later
+      launches were reading a cached id instead of discovering, so it has
+      had less real testing than it looked like. Fixed in v0.5.1.
+    - The installer, and the move tool.
 
   Known limitations:
     - TWO PLAYERS only, and Windows only.

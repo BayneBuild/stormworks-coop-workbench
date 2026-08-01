@@ -1451,7 +1451,15 @@ static void adopt_peer(uint64_t id) {
     MemoryBarrier();                                        // identity fully written before we publish the id
     g_peerid = id;
     if (p_accept) p_accept(g_net, g_peerIdent);
-    FILE* f=nullptr; if(!fopen_s(&f,PEERP,"w") && f){ fprintf(f,"%llu\n",(unsigned long long)id); fclose(f); }
+    // DO NOT persist an auto-adopted peer to coop-peer.txt. That file means "I chose this partner", and any
+    // id in it sets g_manual_peer, which is the flag that switches discovery OFF (see the auto-connect gate).
+    // Writing here therefore made auto-connect DISABLE ITSELF after its first success: one discovery became a
+    // permanent pin to that person, and the mod never looked for anyone again - even after they stopped
+    // playing. Observed live as "it says connected but nobody is there", with the stale pin surviving across
+    // launches and no way to guess why. Discovery takes seconds; it does not need a cache, and a cache that
+    // silently outranks it is worse than none.
+    logline("auto-connect: adopted a partner for THIS session only (not written to coop-peer.txt - "
+            "discovery runs again next launch)");
     // Tell the overlay half of the DLL too. It reads coop-peer.txt only at init, so on an auto-connected
     // session it would otherwise sit on peer=0 for the whole run - HUD "Partner: none", no partner camera,
     // no partner cursor - even though sync itself worked. That mismatch is what made the 2026-07-30 test
@@ -4758,9 +4766,12 @@ static DWORD WINAPI recv_worker(LPVOID) {
             __try { roster_discover(); } __except(EXCEPTION_EXECUTE_HANDLER){}
         if (g_net && g_peerid && !g_localecho) {
             // (1) poll-accept: accept the peer's inbound session as soon as it's pending
-            if (p_accept && p_accept(g_net, g_peerIdent)) {
-                if (!InterlockedExchange(&g_session_ok, 1)) logline("*** SESSION ACCEPTED with peer %llu ***", (unsigned long long)g_peerid);
-            }
+            // Accept, but do NOT call this a live link. AcceptSessionWithUser registers OUR willingness and
+            // returns true whether or not anybody is on the other end - it does not require the peer to be
+            // online, running Stormworks, or even to still have the mod installed. Treating it as proof of a
+            // partner is what let a stale pinned id show "connected" indefinitely to somebody who was not
+            // there, while every send queued into the void. A link is only real once something ARRIVES.
+            if (p_accept) p_accept(g_net, g_peerIdent);
             // (2) keepalive ~every 1s: warm the relay so the link is ready before the first edit. We do
             // NOT tear the session down on a keepalive failure - unreliable sends blip 35/3 transiently
             // even on a healthy link, and that was causing endless close+re-accept churn (and log spam).
