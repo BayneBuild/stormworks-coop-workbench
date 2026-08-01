@@ -81,11 +81,13 @@ the community has wanted for years.
 What's actually been tested, and what hasn't:
 
 **✅ Tested and working** (on two real machines over Steam):
-- **Custom gamemode**, at the **starter vehicle workbench**, with **both players starting from an
-  empty craft and placing their first block at the same origin spot.**
-- Everything in the feature table above **except bench matching** held up in a live two-machine session.
-  Bench matching and component-settings sync were both written afterwards and have never run between two
-  machines.
+- **Custom gamemode**, at the **starter vehicle workbench**. You no longer need to start from an empty
+  craft or place a matching first block — opening the bench is enough, and either player can join a build
+  already in progress.
+- Everything in the feature table above **except bench matching** held up in a live two-machine session,
+  including component-settings sync.
+  Bench matching was written afterwards: two *matching* benches pair correctly across machines, but the code
+  that **refuses** a mismatch has never actually fired between two.
 
 **✅ Also confirmed since:**
 - **Multiple different workbenches**, not just the starter one.
@@ -130,9 +132,14 @@ Active development — the last few builds changed the setup completely:
   are **held** while you have a properties panel or the microcontroller editor open, since each one rebuilds
   the craft — they land when you close it. Turn it off with `coop-noprops.txt` next to the mod.
 
-> Much of this is **solo-tested only**. The install, the marker fix and the startup display have been
-> verified on one machine; the newer sync work has not yet had a two-machine session. Please report anything
-> odd — both players' `coopworkbench-log.txt` (with SteamIDs removed) is the most useful thing you can send.
+> **All of the sync work above has now had a two-machine session** — live editing, component settings, and
+> whole-craft pulls on a 471-component craft. Two things still have not: automatic pairing has found a
+> partner but had less real testing than it looked like (a bug meant later launches read a cached ID instead
+> of discovering), and the bench-mismatch *refusal* has never actually fired between two machines.
+>
+> Please report anything odd. Both players' `coopworkbench-log.txt` (with the 17-digit SteamIDs removed) is
+> the most useful thing you can send — and say what each of you **saw**, separately. "It didn't sync" is
+> usually two different stories on the two screens, and the difference is the clue.
 
 ## Known limitations — what doesn't work yet
 
