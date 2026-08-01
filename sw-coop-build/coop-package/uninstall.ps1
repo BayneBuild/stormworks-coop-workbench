@@ -5,9 +5,9 @@
   if it is empty - another mod may well live there, and an uninstaller that takes someone else's plugin with
   it is worse than one that leaves an empty folder behind.
 
-  It does NOT remove dinput8.dll (the ASI loader), because another mod may be relying on it, and it does NOT
-  remove your config files, so a reinstall keeps your pairing. To take the loader out as well, delete
-  <Stormworks>\dinput8.dll yourself once you are sure nothing else needs it.
+  It removes the mod, its logs and its config files, so nothing is left to change the behaviour of a future
+  install. It does NOT remove dinput8.dll (the ASI loader), because another mod may be relying on it - to
+  take that out too, delete <Stormworks>\dinput8.dll yourself once you are sure nothing else needs it.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -51,14 +51,22 @@ $plugins = Join-Path $game 'plugins'
 # contradicts what install.ps1 promises. This script already refuses to remove a non-empty plugins folder
 # for exactly that reason; the loader deserves the same care.
 #
-# The config files are the player's, not ours. Leaving coop-peer.txt / coop-autoconnect-off.txt /
-# coop-noprops.txt alone means a reinstall keeps their pairing and their choices.
+# DO remove the config files. An earlier version of this script kept them, reasoning that they are the
+# player's and a reinstall should keep their pairing. That was wrong once we understood what coop-peer.txt
+# actually does: any id in it PINS the partner and switches auto-discovery off. A leftover one is not a
+# saved preference, it is a trap - reinstall, and the mod silently pairs with someone who may have stopped
+# playing months ago, reports "connecting" forever, and never looks for anybody else. That exact file cost a
+# live test session. Uninstall should mean uninstalled, with nothing left to ambush the next install.
 $targets = @(
     (Join-Path $plugins 'coopworkbench.asi'),
     (Join-Path $plugins 'coopworkbench-log.txt'),
     (Join-Path $plugins 'wsdraw-log.txt'),
     (Join-Path $plugins 'coopworkbench-cmd.txt'),
-    (Join-Path $plugins 'coopworkbench-CRASH.txt')
+    (Join-Path $plugins 'coopworkbench-CRASH.txt'),
+    (Join-Path $plugins 'coop-peer.txt'),
+    (Join-Path $plugins 'coop-autoconnect-off.txt'),
+    (Join-Path $plugins 'coop-noprops.txt'),
+    (Join-Path $plugins 'coop-selftest.txt')
 )
 $present = $targets | Where-Object { Test-Path $_ }
 

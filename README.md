@@ -17,6 +17,12 @@ peer-to-peer over Steam. No server, no port-forwarding, no IP addresses.
 > [Tested / not tested](#tested--not-tested)). It runs entirely **in-memory on your own game and
 > modifies no game files** — but back up your creations and use it at your own risk.
 
+![Two players building one craft, live](docs/coop-demo.gif)
+
+*Real footage from a two-machine session, recorded on one player's screen. The orange marker is the **other
+player's camera**, and the craft grows as they build it — nothing here was placed locally. 471 components,
+over Steam peer-to-peer.*
+
 ## Why this exists
 
 Co-op in Stormworks never really felt like *co-op* to me. You spend **hours** building your own
@@ -191,7 +197,7 @@ and only, what `install.bat` does. To uninstall either way, delete those two fil
 
 | | |
 |---|---|
-| `F7` | load your partner's craft (press twice if you have local work to lose) |
+| `F7` | load your partner's craft - one press, replaces yours with theirs |
 | `F6` | overlay / status panel |
 | `F8` | in-game log — `PgUp`/`PgDn` scroll, `Home`/`End` jump, `F2` filter |
 | `F9` | world overlay on/off |

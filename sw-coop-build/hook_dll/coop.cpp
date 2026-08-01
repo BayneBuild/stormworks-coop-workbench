@@ -1859,11 +1859,22 @@ extern "C" {
     volatile long g_sync_started = 0;         // GetTickCount when the request went out (for a timeout message)
     volatile long g_sync_err = 0;             // GetTickCount of the last refusal; banner shows why for a few s
     char          g_sync_err_msg[96] = {0};
+    volatile long g_sync_ask = 0;             // a CONFIRMATION prompt, not a failure - drawn amber, not red
 }
 static void sync_error(const char* why) {     // make a refused/failed sync VISIBLE - silence is the bug we are fixing
     strncpy_s(g_sync_err_msg, sizeof g_sync_err_msg, why, _TRUNCATE);
     InterlockedExchange(&g_sync_err, (long)GetTickCount());
     InterlockedExchange(&g_sync_busy, 0);
+    InterlockedExchange(&g_sync_ask, 0);
+}
+// A QUESTION IS NOT A FAILURE. The F7 confirmation prompt went out through sync_error(), so "are you sure?"
+// was drawn in the same red as "sync refused" - and a tester reported exactly that: F7 reports an error even
+// though syncing works. It also explains repeated F7 presses, since the first press only ever arms the
+// confirm. Same banner, different colour and meaning.
+static void sync_ask(const char* what) {
+    strncpy_s(g_sync_err_msg, sizeof g_sync_err_msg, what, _TRUNCATE);
+    InterlockedExchange(&g_sync_ask, (long)GetTickCount());
+    InterlockedExchange(&g_sync_err, 0);
 }
 static volatile long  g_pull_rx_ready = 0;    // A: set when the last chunk lands, consumed by my_runcb -> load
 
@@ -4385,7 +4396,15 @@ static void my_runcb() {
                     unsigned n = craft_node_count();
                     if (n <= 1) { logline("[presence] partner is building and our craft is empty -> AUTO-RESYNC (pull)");
                                   __try{ pull_request(); }__except(EXCEPTION_EXECUTE_HANDLER){} }
-                    else logline("[presence] partner is building - press F7 to load their craft (not auto-pulling: %u chunk(s) of local work would be replaced)", n);
+                    else {
+                        // ON SCREEN, not just in the log. Edits are not SENT while you are out of the bench
+                        // (sync_paused gates on peer_away), so they are not queued anywhere either - on
+                        // re-entry there is nothing to replay and F7 is the only way to catch up. A tester
+                        // hit this and reasonably read it as "sync is broken": the mod knew exactly what was
+                        // wrong and said so to a file.
+                        logline("[presence] partner is building - press F7 to load their craft (not auto-pulling: %u chunk(s) of local work would be replaced)", n);
+                        sync_ask("YOUR PARTNER BUILT WHILE YOU WERE AWAY - PRESS F7 TO CATCH UP");
+                    }
                 }
             }
         }
@@ -4466,19 +4485,14 @@ static void my_runcb() {
     // gone with no undo. If there is local work to lose, require a SECOND press within 3s and say what will
     // be replaced. An empty or trivial craft pulls immediately, so the common case is unchanged.
     { static SHORT s_f7=0; SHORT f7=GetAsyncKeyState(VK_F7);
-      static DWORD s_armed_at=0;
       if((f7&0x8000)&&!(s_f7&0x8000)) __try{
+          // ONE PRESS. The two-press confirm was added defensively and earned its keep nowhere: F7 is the
+          // thing you reach for precisely when sync looks wrong, so making it ask first put a hesitation in
+          // front of the recovery action. It also read as a failure, because the prompt went out through the
+          // error path. Log what it replaced instead - that is the part worth being able to check afterwards.
           unsigned nodes = craft_node_count();
-          DWORD now = GetTickCount();
-          bool confirmed = s_armed_at && (now - s_armed_at) < 3000;
-          if (nodes > 1 && !confirmed) {
-              s_armed_at = now;
-              logline("!!! F7 will REPLACE your craft (%u nodes) with your partner's. Press F7 again within 3s to confirm.", nodes);
-              sync_error("F7 AGAIN TO CONFIRM - this REPLACES your craft");
-          } else {
-              s_armed_at = 0;
-              pull_request();
-          }
+          logline("F7: pulling partner's craft, replacing our %u node(s)", nodes);
+          pull_request();
       }__except(EXCEPTION_EXECUTE_HANDLER){}
       s_f7=f7; }
     // F8 disabled again: 0x4AE3F0 is the per-BODY serializer (writes body+0x147c/+0x288/+0x2c8/+0x718), NOT
@@ -5411,16 +5425,22 @@ static void crash_report_init() {
     FILE* old = nullptr;
     if (!fopen_s(&old, g_crashp, "r") && old) {
         char line[256] = {0}, doing[256] = {0};
+        bool benign = false;
         // Pull the "doing:" breadcrumb out of the previous report so the log says what crashed, not just that
         // something did.
         while (fgets(line, sizeof line, old)) {
-            if (strncmp(line, "doing     : ", 12) == 0) { strncpy_s(doing, sizeof doing, line + 12, _TRUNCATE); break; }
+            if (strncmp(line, "verdict   : BENIGN", 18) == 0) benign = true;
+            if (strncmp(line, "doing     : ", 12) == 0) strncpy_s(doing, sizeof doing, line + 12, _TRUNCATE);
         }
         fclose(old);
         char* nl = strchr(doing, '\n'); if (nl) *nl = 0;
-        logline("!!! The previous session CRASHED%s%s", doing[0] ? " while: " : "", doing);
-        logline("!!! Report: %s  - please attach it to a bug report.", g_crashp);
-        wsdraw_boot_step("previous session crashed - see log", 2);
+        if (benign) {
+            logline("(previous session ended in a Steam shutdown race - that is what Alt+F4 looks like, not a bug)");
+        } else {
+            logline("!!! The previous session CRASHED%s%s", doing[0] ? " while: " : "", doing);
+            logline("!!! Report: %s  - please attach it to a bug report.", g_crashp);
+            wsdraw_boot_step("previous session crashed - see log", 2);
+        }
     }
     g_prev_filter = SetUnhandledExceptionFilter(coop_crash_filter);
 }
@@ -5521,7 +5541,13 @@ static DWORD WINAPI setup(LPVOID) {
     wsdraw_boot_step(g_hook_refused ? "hooks REFUSED - game version mismatch" : "hooks installed", g_hook_refused ? 2 : 1);
     wsdraw_boot_step(g_iat_hooked ? "main-thread apply ready" : "main-thread hook unavailable", g_iat_hooked ? 1 : 2);
     wsdraw_boot_step(g_net ? "steam p2p ready" : "steam not ready", g_net ? 1 : 2);
-    wsdraw_boot_step(g_peerid ? "partner paired" : "no partner yet - auto-connect watching", g_peerid ? 1 : 4);
+    // THREE states, not two. Having a partner's id is not the same as having a partner: an id can come from
+    // a pinned coop-peer.txt written months ago by someone who has since uninstalled. Saying "paired" on the
+    // strength of an id is what made the mod announce a partner who was not there - the same mistake as
+    // trusting the accept call, one layer up in the UI.
+    if (g_session_ok)   wsdraw_boot_step("partner connected", 1);
+    else if (g_peerid)  wsdraw_boot_step("partner found - waiting for them", 4);
+    else                wsdraw_boot_step("no partner yet - auto-connect watching", 4);
     wsdraw_boot_step("waiting for a workbench", 3);
     wsdraw_boot_step("F6 MENU    F7 PULL CRAFT    F8 LOG", 5);
     if (g_hook_refused)

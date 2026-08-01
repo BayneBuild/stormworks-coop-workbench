@@ -1,6 +1,6 @@
 ======================================================================
   COOP WORKBENCH  -  Real-time multiplayer building for Stormworks
-  v0.5.1-alpha   EXPERIMENTAL
+  v0.5.4-alpha   EXPERIMENTAL
 ======================================================================
 
 WHAT IT DOES
@@ -77,7 +77,7 @@ WHAT'S IN THIS FOLDER
   exactly as it was.
 
 KEYS
-  F7   load your partner's craft (press twice if you have local work to lose)
+  F7   load your partner's craft - one press, replaces yours with theirs
   F6   overlay / status panel
   F8   in-game log - PgUp/PgDn scroll, Home/End jump, F2 filter
   F9   world overlay on/off

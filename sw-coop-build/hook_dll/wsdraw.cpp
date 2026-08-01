@@ -183,6 +183,7 @@ extern "C" volatile long g_peer_in_bench;
 extern "C" volatile long g_bench_mismatch;
 // full-craft sync in flight (a pull clears the craft before rebuilding it - say so, or it looks broken)
 extern "C" volatile long g_sync_busy, g_sync_got, g_sync_total, g_sync_err;
+extern "C" volatile long g_sync_ask;   // a confirmation prompt - amber, and held longer than an error
 extern "C" char g_sync_err_msg[96];
 // local hover voxel, published every frame by coop.cpp's sample_cursor()
 extern "C" volatile long g_cur_valid, g_cur_vx, g_cur_vy, g_cur_vz, g_cur_tool;
@@ -1161,14 +1162,20 @@ static void draw(HDC hdc) {
     // just deleted your work. Centre screen, unmissable, with real chunk progress.
     const long syncErrAt = InterlockedCompareExchange(&g_sync_err,0,0);
     const bool syncErr = syncErrAt && ((long)GetTickCount() - syncErrAt) < 5000;
-    if (InterlockedCompareExchange(&g_sync_busy,0,0) || syncErr) {
+    // A confirmation prompt is amber, not red, and only lives as long as the 3s window it is asking about -
+    // lingering after the window closes would invite a press that no longer counts.
+    const long syncAskAt = InterlockedCompareExchange(&g_sync_ask,0,0);
+    const bool syncAsk = syncAskAt && ((long)GetTickCount() - syncAskAt) < 3000;
+    if (InterlockedCompareExchange(&g_sync_busy,0,0) || syncErr || syncAsk) {
         const int BW=380, BH=64, BX=(g_W-BW)/2, BY=(g_H-BH)/2 - 40;
         glColor4f(0.05f,0.07f,0.11f,0.86f);
         glBegin(GL_QUADS);
           glVertex2f((float)BX,(float)BY);         glVertex2f((float)(BX+BW),(float)BY);
           glVertex2f((float)(BX+BW),(float)(BY+BH)); glVertex2f((float)BX,(float)(BY+BH));
         glEnd();
-        if (syncErr) glColor4f(1.0f,0.45f,0.35f,0.95f); else glColor4f(0.55f,0.90f,1.0f,0.95f);
+        if (syncErr)      glColor4f(1.00f,0.45f,0.35f,0.95f);   // failure  - red
+        else if (syncAsk) glColor4f(1.00f,0.80f,0.35f,0.95f);   // question - amber
+        else              glColor4f(0.55f,0.90f,1.00f,0.95f);   // progress - blue
         glBegin(GL_LINE_LOOP);
           glVertex2f((float)BX,(float)BY);         glVertex2f((float)(BX+BW),(float)BY);
           glVertex2f((float)(BX+BW),(float)(BY+BH)); glVertex2f((float)BX,(float)(BY+BH));
@@ -1177,6 +1184,9 @@ static void draw(HDC hdc) {
         if (syncErr) {
             draw_text(BX+16, BY+14, 1.0f,0.45f,0.35f, "SYNC FAILED");
             draw_text(BX+16, BY+36, 0.90f,0.85f,0.85f, g_sync_err_msg);
+        } else if (syncAsk) {
+            draw_text(BX+16, BY+14, 1.0f,0.80f,0.35f, "ARE YOU SURE?");
+            draw_text(BX+16, BY+36, 0.92f,0.88f,0.80f, g_sync_err_msg);
         } else {
             draw_text(BX+16, BY+14, 0.55f,0.90f,1.0f, "SYNCING WITH PARTNER");
             const long tot=InterlockedCompareExchange(&g_sync_total,0,0), got=InterlockedCompareExchange(&g_sync_got,0,0);
