@@ -17,11 +17,12 @@ peer-to-peer over Steam. No server, no port-forwarding, no IP addresses.
 > [Tested / not tested](#tested--not-tested)). It runs entirely **in-memory on your own game and
 > modifies no game files** — but back up your creations and use it at your own risk.
 
-![Two players building one craft, live](docs/coop-demo.gif)
+![The partner's camera and cursor, painting and placing](docs/coop-demo.gif)
+![The partner's camera and cursor, painting and placing](docs/coop-demo-2.gif)
 
-*Real footage from a two-machine session, recorded on one player's screen. The orange marker is the **other
-player's camera**, and the craft grows as they build it — nothing here was placed locally. 471 components,
-over Steam peer-to-peer.*
+*Real footage from a two-machine session, recorded on one player's screen. The orange frame is the **other
+player's camera** and the orange cell is **their cursor** — you are watching them paint and place components
+from across the network. A 471-component craft, over Steam peer-to-peer.*
 
 ## Why this exists
 
