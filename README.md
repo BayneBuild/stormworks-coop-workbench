@@ -125,9 +125,10 @@ Active development — the last few builds changed the setup completely:
   "incomplete connection" warnings being duplicated on every load. Found and fixed.
 - **A memory leak fixed** in the whole-craft pull — every sync had been leaking the previous craft.
 - **Component settings now sync live** — sliders, names, logic constants and microcontroller internals.
-  This was the biggest gap the README has admitted since the first release. **Solo-tested only so far**: if
-  a setting doesn't appear on your partner's screen, press `F7`. To turn it off, create a file called
-  `coop-noprops.txt` next to the mod.
+  This was the biggest gap the README has admitted since the first release. **Confirmed across two
+  machines**: 71 updates received over Steam and applied with no failures, on a 471-component craft. They
+  are **held** while you have a properties panel or the microcontroller editor open, since each one rebuilds
+  the craft — they land when you close it. Turn it off with `coop-noprops.txt` next to the mod.
 
 > Much of this is **solo-tested only**. The install, the marker fix and the startup display have been
 > verified on one machine; the newer sync work has not yet had a two-machine session. Please report anything
@@ -148,11 +149,12 @@ will be misaligned. Known cause, fix in progress.
 craft's position is three separate fields and the game *reconstructs* one of them on load, which we weren't
 doing — and the fix is in, but it has not yet been confirmed with a real partner.
 
-### ⚠️ Component settings sync, but it is new
+### Component settings sync, and it is new
 
-Sliders, names, logic constants and microcontroller internals now stream live. This has been verified end to
-end on **one machine** and has never run between two. If something doesn't appear, `F7` still pulls the
-partner's whole craft, settings and all — that remains the cure for any desync.
+Sliders, names, logic constants and microcontroller internals now sync — **confirmed across two machines**,
+with 71 updates received and applied and no failures. Updates are **held** while you have a properties panel
+or the microcontroller editor open, and land when you close it. It is still new: if something doesn't
+appear, `F7` pulls the partner's whole craft, settings and all, and remains the cure for any desync.
 
 Turn it off by creating `coop-noprops.txt` next to the mod.
 

@@ -105,10 +105,13 @@ TESTED SETUP / LIMITS - please read
     whole-craft pull in both directions, the partner camera marker, and
     rejoining mid-session.
 
+  Also confirmed across two machines:
+    - COMPONENT SETTINGS. Sliders, names and logic constants sync live -
+      71 updates received and applied, no failures, on a 471-part craft.
+      They are HELD while you have a properties panel or the
+      microcontroller editor open, and land when you close it.
+
   Works but has only been tested on ONE machine so far:
-    - COMPONENT SETTINGS. Sliders, names and logic constants now sync
-      live. This is new and has not yet been run with a real partner.
-      If a setting does not appear, press F7.
     - AUTOMATIC PAIRING. It has found a partner, but a bug meant later
       launches were reading a cached id instead of discovering, so it has
       had less real testing than it looked like. Fixed in v0.5.1.
