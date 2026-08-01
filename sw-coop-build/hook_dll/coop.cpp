@@ -839,7 +839,7 @@ static void pend_place(const PlaceMsg* m, const char* name) {
     g_pend[g_pend_n].m = *m;
     memcpy(g_pend[g_pend_n].name, name, nl); g_pend[g_pend_n].name[nl] = 0;
     g_pend_n++;
-    logline("<<< place held (%d queued) - no forge template yet; they replay the moment you place your first block", g_pend_n);
+    logline("<<< place held (%d queued) - cannot forge yet; retrying every second", g_pend_n);
 }
 // Called right after g_have_struct goes 1. Copies the queue out first: apply_place can re-enter nothing here,
 // but draining in place while indexing would be fragile if that ever changes.
@@ -4539,6 +4539,15 @@ static void my_runcb() {
     // A developer probe that fabricates a partner should not outlive its purpose. F8 is the log viewer.
     // Replay places that arrived before we had a forge template. try_arm captures the template on the detect
     // WORKER thread; forging must happen on the MAIN thread, so it only raises a flag and we drain it here.
+    // RETRY HELD PLACEMENTS ON A TIMER, not only when the local player places something.
+    // A place is held when we cannot yet forge one - no captured template and no resolvable body. The flag
+    // was raised only by try_arm, i.e. by a LOCAL placement, so a partner's blocks sat in the queue until
+    // you happened to place one yourself. That is exactly the reported symptom: the first block never
+    // appears, you place one and erase it, and everything works from then on.
+    // The reasons for deferral resolve on their own - a body appears, a template gets captured - so simply
+    // trying again is enough. Cheap: the queue is empty in the normal case and this does nothing.
+    { static DWORD s_retry = 0; DWORD nowt = GetTickCount();
+      if (g_pend_n > 0 && g_in_bench && nowt - s_retry > 1000) { s_retry = nowt; g_flush_pending = 1; } }
     if (InterlockedExchange(&g_flush_pending, 0)) __try { flush_pending_places(); } __except(EXCEPTION_EXECUTE_HANDLER){}
     if ((++g_frame % 6)==0 && g_in_bench) __try { paint_diff(); } __except(EXCEPTION_EXECUTE_HANDLER){}   // ~10Hz repaint scan
     // ==== WARNING-ICON RING WATCH (§33) ====

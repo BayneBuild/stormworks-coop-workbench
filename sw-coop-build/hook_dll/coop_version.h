@@ -7,7 +7,7 @@
 // Keep the -alpha suffix: the first public release was v0.1.0-alpha and every package since should carry the
 // same signal. The overlay also says EXPERIMENTAL, which is deliberate belt-and-braces for a DLL that people
 // inject into their own game.
-#define COOP_VERSION "v0.5.4-alpha"
+#define COOP_VERSION "v0.5.5-alpha"
 
 // The version alone cannot tell two builds apart when several are made in one session - which is exactly the
 // confusion that had a tester pressing keys against a DLL that had already been replaced, and me diagnosing

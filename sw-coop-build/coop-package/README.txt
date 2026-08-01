@@ -1,6 +1,6 @@
 ======================================================================
   COOP WORKBENCH  -  Real-time multiplayer building for Stormworks
-  v0.5.4-alpha   EXPERIMENTAL
+  v0.5.5-alpha   EXPERIMENTAL
 ======================================================================
 
 WHAT IT DOES
