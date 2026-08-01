@@ -6,8 +6,10 @@
   it is worse than one that leaves an empty folder behind.
 
   It removes the mod, its logs and its config files, so nothing is left to change the behaviour of a future
-  install. It does NOT remove dinput8.dll (the ASI loader), because another mod may be relying on it - to
-  take that out too, delete <Stormworks>\dinput8.dll yourself once you are sure nothing else needs it.
+  install. Two deliberate exceptions: dinput8.dll (the ASI loader) stays, because another mod may be relying
+  on it, and any crash report stays, because people uninstall when something went wrong and that file is the
+  only record of what. To remove the loader too, delete <Stormworks>\dinput8.dll once you are sure nothing
+  else needs it.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +53,10 @@ $plugins = Join-Path $game 'plugins'
 # contradicts what install.ps1 promises. This script already refuses to remove a non-empty plugins folder
 # for exactly that reason; the loader deserves the same care.
 #
+# KEEP coopworkbench-CRASH.txt. People uninstall BECAUSE something went wrong, so deleting the one file that
+# records what went wrong - at exactly the moment they are most likely to report it - destroys the evidence
+# on the way out. It is a few KB, it names itself, and it contains nothing personal.
+#
 # DO remove the config files. An earlier version of this script kept them, reasoning that they are the
 # player's and a reinstall should keep their pairing. That was wrong once we understood what coop-peer.txt
 # actually does: any id in it PINS the partner and switches auto-discovery off. A leftover one is not a
@@ -62,7 +68,6 @@ $targets = @(
     (Join-Path $plugins 'coopworkbench-log.txt'),
     (Join-Path $plugins 'wsdraw-log.txt'),
     (Join-Path $plugins 'coopworkbench-cmd.txt'),
-    (Join-Path $plugins 'coopworkbench-CRASH.txt'),
     (Join-Path $plugins 'coop-peer.txt'),
     (Join-Path $plugins 'coop-autoconnect-off.txt'),
     (Join-Path $plugins 'coop-noprops.txt'),
@@ -104,6 +109,17 @@ if ($failed) {
     Write-Host '  Close the game and run this again.' -ForegroundColor Yellow
 } else {
     Write-Host '  Removed. Stormworks is back to stock.' -ForegroundColor Green
+}
+
+# If something crashed, say so on the way out. The report is the whole reason a bug ever gets fixed, and a
+# file left silently behind is a file nobody sends.
+$crash = Join-Path $plugins 'coopworkbench-CRASH.txt'
+if (Test-Path $crash) {
+    Write-Host ''
+    Write-Host '  A crash report was kept (not deleted):' -ForegroundColor Yellow
+    Write-Host "     $crash"
+    Write-Host '  If the mod crashed on you, please send that file - it says where it failed,' -ForegroundColor DarkGray
+    Write-Host '  and it contains no Steam IDs or personal information.' -ForegroundColor DarkGray
 }
 Write-Host ''
 Read-Host '  Press Enter to close'
