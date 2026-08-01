@@ -179,7 +179,14 @@ All of this is on the [roadmap](ROADMAP.md) — help is very welcome.
 
 1. Both players: grab the [latest release](../../releases), unzip it, and run **`install.bat`**. It finds
    your Stormworks folder, shows exactly the two files it will copy, and asks before writing anything.
-2. Both launch Stormworks normally. **That's it** — the mod loads with the game, every time. You'll see it
+2. Both launch Stormworks normally.
+
+![The mod starting up on the Stormworks loading screen](docs/coop-startup.gif)
+
+*You'll see this on the loading screen — it ticks through what it's doing, so you can tell at a glance that
+it loaded and where it got to if something failed. The radar sweeps while it's looking for a partner and
+locks when it finds one.*
+ **That's it** — the mod loads with the game, every time. You'll see it
    start up on the loading screen. If you're Steam friends and you both have it installed, you pair
    **automatically**: no SteamIDs, nothing to configure.
 3. Both walk up to a workbench — **the same type on both machines** (easiest: the starter bench) — and
